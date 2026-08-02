@@ -19,8 +19,8 @@ status: current
 
 > [!info] Current phase
 > **Phase 2 — First locomotion policy** (due Aug 16, 2026). Phase 1 landed Aug 2, a week
-> early, on native Windows. Phase 2 needs MJX, so WSL2 must be unblocked first — it is
-> stuck on a BIOS virtualization setting, see [[setup]].
+> early, on native Windows. AMD SVM is now enabled and the WSL2 runtime is installed;
+> a reboot then `scripts/setup_wsl_stage2.ps1` finishes the environment — see [[setup]].
 
 ## Milestones
 

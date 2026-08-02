@@ -15,15 +15,32 @@ The dev box for the whole home-phase pipeline (see [[pipeline]]). One machine, 8
 - **OS:** Windows 11 Home 10.0.26200, UEFI
 - **Installed on Windows:** Python 3.12.8, git 2.55.0
 
-> [!warning] WSL2 is blocked by a BIOS setting
-> `wsl --install` cannot complete: **AMD SVM (virtualization) is disabled in firmware**
-> (`VirtualizationFirmwareEnabled = False`, `HypervisorPresent = False`). WSL2 needs a real
-> hypervisor. Gigabyte ships B550 boards with SVM off by default.
->
-> Fix requires physical BIOS access — no OS-side workaround exists on consumer Gigabyte
-> boards (no WMI BIOS provider, unlike Dell/Lenovo/HP business lines):
-> `shutdown /r /fw /t 0` from an admin shell → **Tweaker → Advanced CPU Settings → SVM Mode
-> → Enabled** → F10, then `wsl --install -d Ubuntu-24.04`.
+## WSL2 install state (2026-08-02)
+
+SVM was off in firmware, which is why `wsl --install` did nothing for a while — Gigabyte
+ships B550 boards that way, and no OS-side workaround exists on consumer Gigabyte boards
+(no WMI BIOS provider, unlike Dell/Lenovo/HP business lines). Enabled by hand at
+**Tweaker → Advanced CPU Settings → SVM Mode**.
+
+| Step | State |
+| --- | --- |
+| AMD SVM in firmware | ✅ `VirtualizationFirmwareEnabled = True` |
+| `Microsoft-Windows-Subsystem-Linux` feature | ✅ Enabled |
+| `VirtualMachinePlatform` feature | ✅ Enabled |
+| WSL runtime | ✅ 2.7.11 installed |
+| **Reboot** | ⬜ **required — features are not live until then** |
+| Ubuntu 24.04 distro | ⬜ pending (`scripts/setup_wsl_stage2.ps1`) |
+| JAX-CUDA + Playground | ⬜ pending (`scripts/setup_wsl.sh --all`) |
+
+After the reboot, one command finishes everything:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup_wsl_stage2.ps1
+```
+
+It installs Ubuntu with `--no-launch` (the normal first run opens an interactive console
+asking for a username, which would hang an unattended script), creates the `aditya` user
+non-interactively, then hands off to `scripts/setup_wsl.sh --all` inside WSL.
 
 ## What actually runs today (Phase 1, native Windows)
 
@@ -38,13 +55,32 @@ stays blocked (see [[decisions]]).
   a system ffmpeg that Windows does not have; imageio bundles its own binary and is identical
   on both OSes
 
-## Still required for Phase 2 (WSL2 path)
+## The Linux toolchain (`scripts/setup_wsl.sh`)
 
-JAX-CUDA does not run natively on Windows and DimOS targets Linux, so MJX training still
-needs WSL2 — unblock SVM before Aug 16. `scripts/setup_wsl.sh` automates the whole Linux
-side (apt libs → uv venv → sparse Menagerie clone → `egl`/`osmesa` render probe), with
-`--with-jax` for the CUDA step. Watch VRAM with `nvidia-smi`; at the 8 GB wall reduce
-envs/resolution first, cloud second.
+JAX-CUDA does not run natively on Windows and DimOS targets Linux, so everything from
+Phase 2 on lives in WSL. Stages are selectable and later ones are non-fatal — a DimOS
+failure must not cost a working Phase 2 box:
+
+| Flag | Installs | For |
+| --- | --- | --- |
+| `--base` | apt GL libs, uv, py3.12 venv, MuJoCo, Menagerie, render probe | Phase 1 parity |
+| `--phase2` | `jax[cuda12]`, MuJoCo Playground (editable clone), MJX | locomotion policy |
+| `--phase4` | Open3D | point cloud → terrain |
+| `--phase6` | DimOS | robot OS integration |
+| `--all` | all of the above | |
+
+The render probe tries `egl`, installs the NVIDIA EGL ICD at
+`/usr/share/glvnd/egl_vendor.d/10_nvidia.json` if glvnd can't find the WSL driver, then
+falls back to `osmesa`, persisting whichever works to `~/.bashrc`.
+
+## Phase 2 VRAM budget
+
+Playground's G1 defaults to **8192 parallel envs**, which will OOM on 8 GB.
+`scripts/train_g1.py` caps it at 2048 per the `training-run` skill and preserves brax's
+`batch_size × num_minibatches == num_envs` relation (upstream `256 × 32 = 8192`) by holding
+`num_minibatches = 32` and deriving `batch_size` — so gradient maths is unchanged and only
+parallelism shrinks. Watch `nvidia-smi` in the first minutes; at the wall reduce envs
+first, cloud second.
 
 ## What runs on 8 GB, and how
 
@@ -93,7 +129,10 @@ Note: `npx skills add` needed `http.sslBackend=schannel` (via `GIT_CONFIG_*` env
 
 - `notes/` — this Obsidian vault (documentation only)
 - `lab-notebook/` — weekly markdown lab notebook, outside the vault
-- `scripts/` — `setup_wsl.sh` (Linux env), `check_render.py` (GL gate), `inspect_model.py`
+- `scripts/` — `setup_wsl_stage2.ps1` (Windows: distro + user), `setup_wsl.sh` (Linux env),
+  `check_render.py` (GL gate), `inspect_model.py`, `check_phase2.py` (JAX GPU + G1 env),
+  `train_g1.py` (Phase 2 training, writes the [[experiments]] row)
 - `terrain/` — `make_hfield.py` (numpy → `hfield_data`, `sample_height`), `drop_test.py` (contact gate)
 - `sim/` — `scene_g1_hfield.xml` (G1 + heightfield, no floor plane), `pose_and_render.py` (the demo)
-- `.venv/`, `sim/menagerie`, `*.mp4` are gitignored
+- `runs/` — per-run `config.json` + `progress.json` + checkpoints (gitignored)
+- `.venv/`, `sim/menagerie`, `runs/`, `*.mp4` are gitignored

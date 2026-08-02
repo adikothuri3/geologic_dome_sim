@@ -3,8 +3,12 @@ notes/.obsidian/workspace-mobile.json
 __pycache__/
 .venv/
 
-# Symlink to the Menagerie clone (created by install step A4)
+# Symlink/junction to the Menagerie clone (created by install step A4)
 sim/menagerie
+
+# Training run outputs: checkpoints and progress logs. The distilled result of every run
+# lives in notes/experiments.md, which IS tracked.
+runs/
 
 # Phase 1 render outputs. The MP4 is regenerable (`python sim/pose_and_render.py`) and too
 # big for git; the contact sheets are lab-notebook evidence and are kept.
