@@ -1,0 +1,104 @@
+<mujoco model="g1 on numpy heightfield">
+  <!-- Phase 1 scene. Includes Menagerie's g1.xml directly rather than its scene.xml, so
+       that the flat floor plane is NOT present and the robot contacts terrain instead.
+
+       `menagerie` points at the Menagerie clone (install step A4):
+           Linux:   ln -s ~/src/menagerie sim/menagerie
+           Windows: New-Item -ItemType Junction -Path sim\menagerie `
+                      -Target C:\Users\Aditya\src\menagerie
+
+       The <hfield> is declared empty here; elevation data is generated in numpy and
+       written into model.hfield_data at load time by terrain/make_hfield.py.
+
+       Relief is 15 cm over a 6 m field (max slope ~10 deg over a foot-length baseline).
+       The robot survives that only because make_hfield.py flattens a pad at the origin:
+       the `stand` pose is straight-legged and position actuators hold JOINT angles, not
+       the floating base, so in Phase 1 nothing catches a topple. -->
+
+  <include file="menagerie/unitree_g1/g1.xml"/>
+
+  <!-- g1.xml declares meshdir="assets", which MuJoCo resolves relative to the TOP-LEVEL
+       scene file (sim/), not relative to g1.xml. Menagerie's own scene.xml never hits this
+       because it sits beside g1.xml and assets/.
+       This <compiler> MUST come after the <include>: MJCF applies elements in order, so
+       placing it first lets g1.xml's own meshdir override ours and the meshes go missing. -->
+  <compiler angle="radian" meshdir="menagerie/unitree_g1/assets"
+            texturedir="menagerie/unitree_g1/assets"/>
+
+  <statistic center="0 0 0.6" extent="1.8"/>
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="140" elevation="-20" offwidth="1280" offheight="720"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0"
+             width="512" height="3072"/>
+    <texture type="2d" name="terrain_tex" builtin="checker" mark="edge"
+             rgb1="0.24 0.30 0.24" rgb2="0.16 0.21 0.16" markrgb="0.7 0.72 0.68"
+             width="300" height="300"/>
+    <material name="terrain_mat" texture="terrain_tex" texuniform="true"
+              texrepeat="12 12" reflectance="0.05"/>
+    <hfield name="terrain" nrow="128" ncol="128" size="3 3 0.15 0.1"/>
+  </asset>
+
+  <worldbody>
+    <light pos="1.5 -1.5 3.5" dir="-0.35 0.35 -1" directional="true"/>
+    <geom name="terrain" type="hfield" hfield="terrain" material="terrain_mat"
+          pos="0 0 0" friction="1 0.005 0.0001" condim="3"/>
+  </worldbody>
+
+  <!-- Menagerie's g1.xml ships exactly one keyframe (`stand`). "Pose it with keyframes"
+       means authoring our own. Joint order is 12 leg / 3 waist / 14 arm:
+         0-5   left  hip_pitch hip_roll hip_yaw knee ankle_pitch ankle_roll
+         6-11  right hip_pitch hip_roll hip_yaw knee ankle_pitch ankle_roll
+         12-14 waist yaw roll pitch
+         15-21 left  shoulder_pitch shoulder_roll shoulder_yaw elbow wrist_roll wrist_pitch wrist_yaw
+         22-28 right shoulder_pitch shoulder_roll shoulder_yaw elbow wrist_roll wrist_pitch wrist_yaw
+       qpos is 36 = 7 free-joint (3 pos + 4 quat) + 29 hinges. ctrl is 29.
+       Base z values assume a floor at z=0; pose_and_render.py re-seats them on terrain. -->
+  <keyframe>
+    <!-- `stand` is inherited from g1.xml above -- redeclaring it here is an XML error
+         ("repeated name in key"), and duplicating it would give the pose two homes. -->
+    <key name="crouch"
+         qpos="0 0 0.74 1 0 0 0
+               -0.4 0 0 0.8 -0.4 0
+               -0.4 0 0 0.8 -0.4 0
+               0 0 0
+               0.35 0.2 0 1.1 0 0 0
+               0.35 -0.2 0 1.1 0 0 0"
+         ctrl="-0.4 0 0 0.8 -0.4 0
+               -0.4 0 0 0.8 -0.4 0
+               0 0 0
+               0.35 0.2 0 1.1 0 0 0
+               0.35 -0.2 0 1.1 0 0 0"/>
+
+    <key name="t_pose"
+         qpos="0 0 0.79 1 0 0 0
+               0 0 0 0 0 0
+               0 0 0 0 0 0
+               0 0 0
+               0 1.35 0 0 0 0 0
+               0 -1.35 0 0 0 0 0"
+         ctrl="0 0 0 0 0 0
+               0 0 0 0 0 0
+               0 0 0
+               0 1.35 0 0 0 0 0
+               0 -1.35 0 0 0 0 0"/>
+
+    <key name="arms_up"
+         qpos="0 0 0.79 1 0 0 0
+               0 0 0 0 0 0
+               0 0 0 0 0 0
+               0 0 0
+               -1.6 0.15 0 0.2 0 0 0
+               -1.6 -0.15 0 0.2 0 0 0"
+         ctrl="0 0 0 0 0 0
+               0 0 0 0 0 0
+               0 0 0
+               -1.6 0.15 0 0.2 0 0 0
+               -1.6 -0.15 0 0.2 0 0 0"/>
+  </keyframe>
+</mujoco>

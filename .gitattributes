@@ -1,0 +1,13 @@
+# This repo is developed on Windows but targets WSL/Linux (Phase 2 onward), so line endings
+# must not be left to the platform. A .sh file checked out with CRLF fails in bash with
+# "bad interpreter: /usr/bin/env bash^M" -- scripts/setup_wsl.sh is exactly that case.
+* text=auto eol=lf
+
+*.sh   text eol=lf
+*.py   text eol=lf
+*.xml  text eol=lf
+*.md   text eol=lf
+
+*.png  binary
+*.mp4  binary
+*.STL  binary

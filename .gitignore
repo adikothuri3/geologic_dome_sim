@@ -2,3 +2,11 @@ notes/.obsidian/workspace.json
 notes/.obsidian/workspace-mobile.json
 __pycache__/
 .venv/
+
+# Symlink to the Menagerie clone (created by install step A4)
+sim/menagerie
+
+# Phase 1 render outputs. The MP4 is regenerable (`python sim/pose_and_render.py`) and too
+# big for git; the contact sheets are lab-notebook evidence and are kept.
+*.mp4
+reports/check_render.png

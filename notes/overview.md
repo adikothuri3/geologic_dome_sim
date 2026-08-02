@@ -1,6 +1,6 @@
 ---
 title: Robot Everest 2026 — Overview
-updated: 2026-08-01
+updated: 2026-08-02
 status: current
 ---
 
@@ -18,13 +18,15 @@ status: current
 - Commitment: ~12–15 hrs/week; every phase ends in a demo, not a slide deck
 
 > [!info] Current phase
-> **Phase 1 — MuJoCo fluency** (starts Aug 3, 2026). Environment is not set up yet — see [[setup]] for day-one install order.
+> **Phase 2 — First locomotion policy** (due Aug 16, 2026). Phase 1 landed Aug 2, a week
+> early, on native Windows. Phase 2 needs MJX, so WSL2 must be unblocked first — it is
+> stuck on a BIOS virtualization setting, see [[setup]].
 
 ## Milestones
 
 | Due | Phase | Demo | Status |
 | --- | --- | --- | --- |
-| Aug 9 | 1 — MuJoCo fluency | G1 standing on a numpy-generated heightfield, rendered as video | not started |
+| Aug 9 | 1 — MuJoCo fluency | G1 standing on a numpy-generated heightfield, rendered as video | **done** (Aug 2) |
 | Aug 16 | 2 — First locomotion policy | Self-trained joystick policy walking, every reward term explained | not started |
 | Aug 23 | 3 — LingBot-Map reconstruction | Phone video → dense point cloud of a local trail, camera trajectory overlaid | not started |
 | Aug 30 | 4 — Real2Sim terrain | G1 walking (Phase 2 policy) on MuJoCo terrain built from own footage — hackathon demo Aug 29 | not started |
