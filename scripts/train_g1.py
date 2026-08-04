@@ -156,6 +156,10 @@ def main() -> None:
                     help="collide shins, thighs and hands with the ground, not just feet")
     ap.add_argument("--njmax", type=int, default=None,
                     help="constraint rows per env; overrides the mode default")
+    ap.add_argument("--reward-scale", action="append", default=[], metavar="TERM=VALUE",
+                    help="override one reward weight, e.g. feet_air_time=4.0 (repeatable). "
+                         "The term must already exist -- a typo would otherwise create a dead "
+                         "entry that silently does nothing.")
     args = ap.parse_args()
 
     commit = git_commit(args.allow_dirty or args.smoke)
@@ -190,6 +194,20 @@ def main() -> None:
     env_cfg.njmax = args.njmax or (
         NJMAX_FULL_COLLISION if args.full_collision else NJMAX_FEET_ONLY
     )
+
+    reward_overrides = {}
+    for spec in args.reward_scale:
+        if "=" not in spec:
+            sys.exit(f"--reward-scale expects TERM=VALUE, got {spec!r}")
+        term, _, value = spec.partition("=")
+        term = term.strip()
+        if term not in env_cfg.reward_config.scales:
+            sys.exit(f"unknown reward term {term!r}. Available:\n  "
+                     + "\n  ".join(sorted(env_cfg.reward_config.scales.keys())))
+        before = float(env_cfg.reward_config.scales[term])
+        env_cfg.reward_config.scales[term] = float(value)
+        reward_overrides[term] = {"from": before, "to": float(value)}
+        print(f"reward override: {term} {before} -> {float(value)}")
 
     if args.full_collision:
         # Built directly rather than through registry.load, which is hardwired to the
@@ -230,8 +248,11 @@ def main() -> None:
     # clobbering rather than a loud error.
     collision = "full-collision" if args.full_collision else "feet-only"
     budget = f"{num_timesteps // 1_000_000}M"
+    # A reward override is a different experiment, not a rerun -- it gets its own run_id so the
+    # comparison against the unmodified baseline stays legible in experiments.md.
+    tweak = "".join(f"-{t}{v['to']:g}" for t, v in sorted(reward_overrides.items()))
     run_id = (f"{datetime.now().astimezone().strftime('%Y-%m-%d')}-g1-joystick-{collision}"
-              f"-{budget}" + ("-smoke" if args.smoke else ""))
+              f"-{budget}{tweak}" + ("-smoke" if args.smoke else ""))
     out_dir = RUNS / run_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -240,6 +261,7 @@ def main() -> None:
         "commit": commit,
         "env": ENV_NAME,
         "collision": collision,
+        "reward_overrides": reward_overrides,
         "started": datetime.now(timezone.utc).isoformat(),
         "device": str(devices[0]),
         "ppo": {k: (v if isinstance(v, (int, float, str, bool)) else str(v))
@@ -343,7 +365,9 @@ def main() -> None:
             "commit": commit,
             "config": f"{ENV_NAME}, **{collision}**, PPO, bs={batch_size}, "
                       f"nmb={NUM_MINIBATCHES}, njmax={int(env_cfg.njmax)}, "
-                      f"steps={num_timesteps:,}, seed={args.seed}",
+                      f"steps={num_timesteps:,}, seed={args.seed}"
+                      + "".join(f", **{t} {v['from']:g}→{v['to']:g}**"
+                                for t, v in sorted(reward_overrides.items())),
             "n_envs": num_envs,
             "metrics": f"final eval reward {final:.2f}, best {best:.2f}, {wall_min:.0f} min"
                        + ("" if status == "ok" else f" — {status}"),
