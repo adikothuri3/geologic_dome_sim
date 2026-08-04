@@ -257,6 +257,23 @@ def main() -> None:
     history: list[dict] = []
     t0 = time.time()
 
+    # Keep every evaluation's weights, not just the last.
+    #
+    # brax returns the FINAL params, and both runs so far peaked around 80M steps and then
+    # drifted down -- the feet-only baseline ended 1.6 below its peak, the full-collision run
+    # 4.6 below. Training longer therefore made the *saved* policy worse while the run looked
+    # like it had simply plateaued. Checkpoints are a few MB each and there are only num_evals
+    # of them, which is a trivial price for not throwing away the best policy of the run.
+    ckpt_dir = out_dir / "checkpoints"
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+    def save_policy(current_step, make_policy, params):
+        del make_policy
+        from etils import epath
+        from orbax import checkpoint as ocp
+        path = epath.Path((ckpt_dir / f"step_{int(current_step):012d}").resolve())
+        ocp.PyTreeCheckpointer().save(path, params, force=True)
+
     def progress(num_steps, metrics):
         reward = float(metrics.get("eval/episode_reward", float("nan")))
         std = float(metrics.get("eval/episode_reward_std", float("nan")))
@@ -273,6 +290,7 @@ def main() -> None:
         network_factory=network_factory,
         randomization_fn=registry.get_domain_randomizer(ENV_NAME),
         progress_fn=progress,
+        policy_params_fn=save_policy,
     )
 
     status, takeaway = "ok", ""
@@ -284,7 +302,11 @@ def main() -> None:
         )
         from etils import epath
         from orbax import checkpoint as ocp
-        ocp.PyTreeCheckpointer().save(epath.Path(out_dir / "params").resolve(), params)
+        # force=True: run_id is date-based, so a second run on the same day reuses this path.
+        # Without it orbax raises *after* training finishes and the whole run is lost to a
+        # save error -- which is exactly what happened on the first checkpointing smoke test.
+        ocp.PyTreeCheckpointer().save(
+            epath.Path(out_dir / "params").resolve(), params, force=True)
         print(f"\nsaved params to {out_dir / 'params'}")
     except Exception as exc:  # a failed run is still a logged run
         status = "FAILED"
@@ -294,6 +316,21 @@ def main() -> None:
         wall_min = (time.time() - t0) / 60
         best = max((h["reward"] for h in history), default=float("nan"))
         final = history[-1]["reward"] if history else float("nan")
+
+        # Record which checkpoint was actually the good one, so nobody has to re-derive it
+        # from progress.json to render or fine-tune the best policy.
+        if history:
+            best_entry = max(history, key=lambda h: h["reward"])
+            best_ckpt = ckpt_dir / f"step_{int(best_entry['steps']):012d}"
+            (out_dir / "best.json").write_text(json.dumps({
+                "best_step": best_entry["steps"],
+                "best_reward": best_entry["reward"],
+                "final_reward": final,
+                "checkpoint": rel(best_ckpt),
+                "exists": best_ckpt.exists(),
+            }, indent=2), encoding="utf-8")
+            print(f"best eval was {best_entry['reward']:.2f} at step {best_entry['steps']:,} "
+                  f"-> {rel(best_ckpt)}")
         if status == "ok":
             takeaway = ("smoke test only, not a usable policy" if args.smoke
                         else f"{collision} at {num_envs} envs; reward {final:.1f}")

@@ -61,12 +61,28 @@ def main() -> None:
     ap.add_argument("--height", type=int, default=544)
     ap.add_argument("--camera", default="track")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--best", action="store_true",
+                    help="render the run's best-scoring checkpoint instead of its final weights")
     args = ap.parse_args()
 
     run_dir = pathlib.Path(args.run_dir)
     if not run_dir.is_absolute():
         run_dir = REPO / run_dir
+
     params_path = (run_dir / "params").resolve()
+    if args.best:
+        # Runs so far peak near 80M steps and drift down afterwards, so the final weights are
+        # not the best weights -- see notes/experiments.md.
+        best_meta = run_dir / "best.json"
+        if not best_meta.exists():
+            sys.exit(f"{best_meta} not found; this run predates per-eval checkpointing")
+        meta = json.loads(best_meta.read_text(encoding="utf-8"))
+        candidate = REPO / meta["checkpoint"]
+        if not candidate.exists():
+            sys.exit(f"best checkpoint missing: {candidate}")
+        params_path = candidate.resolve()
+        print(f"using BEST checkpoint: step {meta['best_step']:,} "
+              f"(reward {meta['best_reward']:.2f} vs final {meta['final_reward']:.2f})")
     if not params_path.exists():
         sys.exit(f"no params at {params_path}")
 
