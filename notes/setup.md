@@ -1,6 +1,6 @@
 ---
 title: Machine setup — RTX 4060 Ti + WSL2
-updated: 2026-08-02
+updated: 2026-08-03
 status: current
 ---
 
@@ -15,7 +15,7 @@ The dev box for the whole home-phase pipeline (see [[pipeline]]). One machine, 8
 - **OS:** Windows 11 Home 10.0.26200, UEFI
 - **Installed on Windows:** Python 3.12.8, git 2.55.0
 
-## WSL2 install state (2026-08-02)
+## WSL2 install state (2026-08-03) — complete
 
 SVM was off in firmware, which is why `wsl --install` did nothing for a while — Gigabyte
 ships B550 boards that way, and no OS-side workaround exists on consumer Gigabyte boards
@@ -25,28 +25,42 @@ ships B550 boards that way, and no OS-side workaround exists on consumer Gigabyt
 | Step | State |
 | --- | --- |
 | AMD SVM in firmware | ✅ `VirtualizationFirmwareEnabled = True` |
-| `Microsoft-Windows-Subsystem-Linux` feature | ✅ Enabled |
-| `VirtualMachinePlatform` feature | ✅ Enabled |
-| WSL runtime | ✅ 2.7.11 installed |
-| **Reboot** | ⬜ **required — features are not live until then** |
-| Ubuntu 24.04 distro | ⬜ pending (`scripts/setup_wsl_stage2.ps1`) |
-| JAX-CUDA + Playground | ⬜ pending (`scripts/setup_wsl.sh --all`) |
+| WSL features + runtime | ✅ 2.7.11, kernel 6.18.33.2 |
+| Ubuntu 24.04 distro | ✅ default user `aditya`, `systemd=true` |
+| GPU passthrough | ✅ `nvidia-smi` in WSL: RTX 4060 Ti, 8188 MiB, driver 610.62 |
+| Offscreen rendering | ✅ **hardware EGL, first try** — no NVIDIA ICD file, no osmesa fallback |
+| JAX-CUDA | ✅ jax 0.11.0, `[CudaDevice(id=0)]` |
+| Playground + MJX | ✅ playground 0.2.0, brax 0.14.2, `G1JoystickFlatTerrain` loads |
+| Open3D (Phase 4) | ✅ 0.19.0 |
+| Phase 1 parity on Linux | ✅ all three scripts pass, MP4 renders |
 
-After the reboot, one command finishes everything:
+Reproduce from scratch with `scripts/setup_wsl_stage2.ps1` (Windows: distro + user) then
+`scripts/setup_wsl.sh --all` (Linux toolchain). Stage 2 installs Ubuntu with `--no-launch`,
+because the normal first run opens an interactive console asking for a username and would
+hang an unattended script.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\setup_wsl_stage2.ps1
-```
+> [!warning] WSL's network stalls connections, not transfers
+> Roughly **one in five fresh HTTPS connections** from this WSL instance to GitHub hangs
+> until timeout, while sustained transfers run fine at 6 MB/s. This killed three install
+> attempts at three different steps before it was understood. `setup_wsl.sh` now wraps every
+> network call in `retry()` and exports `GIT_HTTP_LOW_SPEED_TIME=20` so a dead socket aborts
+> in 20 s instead of hanging. If an install stalls silently, this is the first suspect.
 
-It installs Ubuntu with `--no-launch` (the normal first run opens an interactive console
-asking for a username, which would hang an unattended script), creates the `aditya` user
-non-interactively, then hands off to `scripts/setup_wsl.sh --all` inside WSL.
+Two consequences worth knowing before debugging anything in WSL:
 
-## What actually runs today (Phase 1, native Windows)
+- **`/tmp` does not survive.** `systemd=true` mounts it as tmpfs, so an idle-terminated
+  distro takes the logs with it. Write install logs to a `/mnt/c/...` path.
+- **Playground clones its own Menagerie** (pinned commit `1b86ece`, ~500 MB) into
+  `~/src/playground/mujoco_playground/external_deps/` on the *first* `registry.load()`. That
+  is a one-time cost, already paid; a first training run on a fresh box will pay it again and
+  can look like a hang.
 
-Phase 1 needs no GPU, no JAX and no hypervisor — MuJoCo physics is CPU and Windows renders
-through WGL with `MUJOCO_GL` unset. So Phase 1 was built and demoed natively while WSL2
-stays blocked (see [[decisions]]).
+## The Windows side (still live, still useful)
+
+Phase 1 was built here while WSL2 was blocked on firmware, and it still works: MuJoCo physics
+is CPU and Windows renders through WGL with `MUJOCO_GL` unset (see [[decisions]]). Keep it —
+it needs no hypervisor, it is the fallback if WSL breaks, and its Menagerie clone is what
+seeds the Linux one. Phase 1 now passes identically on both.
 
 - **`.venv`** at the repo root: `mujoco 3.11.0`, `numpy 2.5.1`, `imageio`, `imageio-ffmpeg`
 - **Menagerie** sparse-cloned to `C:\Users\Aditya\src\menagerie` (`unitree_g1` only), exposed
@@ -61,13 +75,17 @@ JAX-CUDA does not run natively on Windows and DimOS targets Linux, so everything
 Phase 2 on lives in WSL. Stages are selectable and later ones are non-fatal — a DimOS
 failure must not cost a working Phase 2 box:
 
-| Flag | Installs | For |
-| --- | --- | --- |
-| `--base` | apt GL libs, uv, py3.12 venv, MuJoCo, Menagerie, render probe | Phase 1 parity |
-| `--phase2` | `jax[cuda12]`, MuJoCo Playground (editable clone), MJX | locomotion policy |
-| `--phase4` | Open3D | point cloud → terrain |
-| `--phase6` | DimOS | robot OS integration |
-| `--all` | all of the above | |
+| Flag | Installs | Into | For |
+| --- | --- | --- | --- |
+| `--base` | apt GL libs, uv, py3.12 venv, MuJoCo, Menagerie, render probe | `~/venvs/dome` | Phase 1 parity |
+| `--phase2` | `jax[cuda12]`, MuJoCo Playground (editable clone), MJX | `~/venvs/dome` | locomotion policy |
+| `--phase4` | Open3D | `~/venvs/dome` | point cloud → terrain |
+| `--phase6` | DimOS | **`~/venvs/dimos`** | robot OS integration |
+| `--all` | all of the above | | |
+
+DimOS lives in its own venv on purpose — see [[decisions]]. The Menagerie step copies
+`unitree_g1` out of the Windows clone at `C:\Users\Aditya\src\menagerie` when one exists, so
+the common path makes no network call at all.
 
 The render probe tries `egl`, installs the NVIDIA EGL ICD at
 `/usr/share/glvnd/egl_vendor.d/10_nvidia.json` if glvnd can't find the WSL driver, then
@@ -75,12 +93,19 @@ falls back to `osmesa`, persisting whichever works to `~/.bashrc`.
 
 ## Phase 2 VRAM budget
 
-Playground's G1 defaults to **8192 parallel envs**, which will OOM on 8 GB.
+**The usable budget is ~6 GB, not 8.** This GPU also drives the Windows desktop, which holds
+roughly 2 GB. JAX preallocates 75 % of total VRAM by default — 0.75 × 8188 MiB ≈ 6.0 GiB —
+and that allocation *fails*, after which XLA retries down a ladder (5.4 → 4.9 → 4.4 GiB) and
+proceeds with a fragmented pool. So `check_phase2.py` and `train_g1.py` both set
+`XLA_PYTHON_CLIENT_PREALLOCATE=false` before JAX initialises its backend, and allocate on
+demand instead. JAX then reports `vram 6.0 GiB`.
+
+Playground's G1 defaults to **8192 parallel envs**, which will OOM.
 `scripts/train_g1.py` caps it at 2048 per the `training-run` skill and preserves brax's
 `batch_size × num_minibatches == num_envs` relation (upstream `256 × 32 = 8192`) by holding
 `num_minibatches = 32` and deriving `batch_size` — so gradient maths is unchanged and only
-parallelism shrinks. Watch `nvidia-smi` in the first minutes; at the wall reduce envs
-first, cloud second.
+parallelism shrinks. Watch `nvidia-smi` in the first minutes; at the wall drop to 1024 envs
+first, cloud second. Closing VS Code buys back most of a gigabyte.
 
 ## What runs on 8 GB, and how
 

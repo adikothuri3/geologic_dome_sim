@@ -6,7 +6,15 @@ Cheap and fast. Run this before any training so a broken CUDA install or a Playg
 change fails in seconds rather than twenty minutes into a run.
 """
 
+import os
 import sys
+
+# Must be set before JAX initialises the GPU backend. JAX otherwise preallocates 75% of VRAM
+# (0.75 x 8188 MiB = the 6.00 GiB allocation observed failing here), but this 4060 Ti also
+# drives the Windows desktop, which already holds ~2 GB. XLA does back off on failure, at the
+# cost of a noisy retry ladder and a fragmented pool. Allocating on demand is the right
+# trade-off on a GPU we share with the display.
+os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 
 
 def main() -> None:

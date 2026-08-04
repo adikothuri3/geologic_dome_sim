@@ -18,6 +18,7 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV="$HOME/venvs/dome"
+DIMOS_VENV="$HOME/venvs/dimos"
 SRC="$HOME/src"
 MENAGERIE="$SRC/menagerie"
 PLAYGROUND="$SRC/playground"
@@ -38,35 +39,90 @@ done
 step() { printf '\n\033[1m== %s ==\033[0m\n' "$1"; }
 warn() { printf '\033[33mWARN: %s\033[0m\n' "$1"; }
 
+# Measured on this box: ~1 in 5 fresh HTTPS connections from WSL to GitHub hangs until it
+# times out, while sustained transfers run fine at 6 MB/s. Without these, git sits on a dead
+# socket for minutes; with them it gives up after 20s and retry() gets its next attempt.
+export GIT_HTTP_LOW_SPEED_LIMIT=1000
+export GIT_HTTP_LOW_SPEED_TIME=20
+
+# Every network call below is wrapped so one stalled connection doesn't abort a 20-minute
+# install. Note this only helps commands that actually return non-zero -- see the menagerie
+# stage for why the failing command must itself be wrapped, not just its neighbour.
+retry() {
+  local n=0
+  until "$@"; do
+    n=$((n + 1))
+    [[ $n -ge 3 ]] && { warn "giving up after 3 attempts: $*"; return 1; }
+    warn "attempt $n failed, retrying in 5s: $*"
+    sleep 5
+  done
+}
+
 # ----------------------------------------------------------------- base --
 if [[ $DO_BASE -eq 1 ]]; then
   step 'base: system libraries'
   sudo apt-get update
   sudo apt-get install -y \
     build-essential git curl ca-certificates \
+    python3.12-venv \
     libegl1 libgl1 libglx-mesa0 libosmesa6 libglfw3
 
   step 'base: uv + python 3.12 venv'
-  if ! command -v uv >/dev/null 2>&1; then
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-  fi
+  # Before the check, not after: uv installs itself here and would otherwise be re-downloaded
+  # on every re-run because it isn't on PATH yet.
   export PATH="$HOME/.local/bin:$PATH"
-  uv venv --python 3.12 "$VENV"
+  if ! command -v uv >/dev/null 2>&1; then
+    # WSL's NAT drops the occasional TLS handshake; a transient `curl: (28)` here once
+    # aborted the entire run at its first network call. Retry before giving up.
+    ok=0
+    for attempt in 1 2 3; do
+      if curl -LsSf --connect-timeout 15 --max-time 120 --retry 2 \
+           https://astral.sh/uv/install.sh -o /tmp/uv-install.sh; then
+        sh /tmp/uv-install.sh && { ok=1; break; }
+      fi
+      warn "uv install attempt $attempt failed; retrying"
+      sleep 5
+    done
+    [[ $ok -eq 1 ]] || { echo 'FATAL: could not install uv'; exit 1; }
+  fi
+  # `uv venv` errors out on an existing venv rather than no-opping, which broke re-runs after
+  # a later stage failed. Reuse it if it's already there; this script must be resumable.
+  if [[ -x "$VENV/bin/python" ]]; then
+    echo "reusing existing venv at $VENV"
+  else
+    uv venv --python 3.12 "$VENV"
+  fi
   # shellcheck disable=SC1091
   source "$VENV/bin/activate"
 
   # imageio-ffmpeg (not mediapy) so video writing needs no system ffmpeg -- same code path
   # as the Windows box. See notes/decisions.md.
-  uv pip install mujoco numpy imageio imageio-ffmpeg
+  retry uv pip install mujoco numpy imageio imageio-ffmpeg
   python -c "import mujoco; print('mujoco', mujoco.__version__)"
 
   step 'base: menagerie (sparse: unitree_g1 only)'
   mkdir -p "$SRC"
-  if [[ ! -d "$MENAGERIE/.git" ]]; then
-    git clone --depth 1 --filter=blob:none --sparse \
-      https://github.com/google-deepmind/mujoco_menagerie "$MENAGERIE"
+
+  # The Windows box already holds a sparse Menagerie clone that Phase 1 renders from. Copying
+  # unitree_g1 out of it costs a few seconds and zero network. That matters here: roughly one
+  # in five fresh HTTPS connections to GitHub from WSL hangs until timeout, and the lazy blob
+  # fetch that `sparse-checkout set` triggers on a --filter=blob:none clone is exactly such a
+  # connection -- it is what killed this stage before.
+  WIN_MENAGERIE=/mnt/c/Users/Aditya/src/menagerie
+  if [[ ! -e "$MENAGERIE/unitree_g1/g1.xml" && -e "$WIN_MENAGERIE/unitree_g1/g1.xml" ]]; then
+    echo "seeding from the Windows clone at $WIN_MENAGERIE (no network)"
+    rm -rf "$MENAGERIE"
+    mkdir -p "$MENAGERIE"
+    cp -r "$WIN_MENAGERIE/unitree_g1" "$MENAGERIE/"
   fi
-  git -C "$MENAGERIE" sparse-checkout set unitree_g1
+
+  if [[ ! -e "$MENAGERIE/unitree_g1/g1.xml" ]]; then
+    # No local copy to seed from: clone for real. Both the clone and the blob fetch are
+    # retried, since either can draw a stalled connection.
+    [[ -d "$MENAGERIE/.git" ]] || retry git clone --depth 1 --filter=blob:none --sparse \
+      https://github.com/google-deepmind/mujoco_menagerie "$MENAGERIE"
+    retry git -C "$MENAGERIE" sparse-checkout set unitree_g1
+  fi
   ls "$MENAGERIE/unitree_g1/g1.xml" >/dev/null
 
   # sim/scene_g1_hfield.xml includes menagerie/unitree_g1/g1.xml relative to itself.
@@ -115,7 +171,7 @@ if [[ $DO_P2 -eq 1 ]]; then
   source "$VENV/bin/activate"
 
   step 'phase2: JAX with CUDA 12'
-  uv pip install -U "jax[cuda12]"
+  retry uv pip install -U "jax[cuda12]"
   python - <<'PY'
 import jax
 devs = jax.devices()
@@ -126,10 +182,10 @@ PY
 
   step 'phase2: MuJoCo Playground (editable clone -- we need learning/train_jax_ppo.py)'
   if [[ ! -d "$PLAYGROUND/.git" ]]; then
-    git clone --depth 1 https://github.com/google-deepmind/mujoco_playground "$PLAYGROUND"
+    retry git clone --depth 1 https://github.com/google-deepmind/mujoco_playground "$PLAYGROUND"
   fi
-  uv pip install -e "$PLAYGROUND"
-  uv pip install mujoco-mjx
+  retry uv pip install -e "$PLAYGROUND"
+  retry uv pip install mujoco-mjx
 
   step 'phase2: verify the G1 joystick env loads'
   python "$REPO/scripts/check_phase2.py"
@@ -149,11 +205,24 @@ fi
 
 # --------------------------------------------------------------- phase6 --
 if [[ $DO_P6 -eq 1 ]]; then
-  # shellcheck disable=SC1091
-  source "$VENV/bin/activate"
-  step 'phase6: DimOS'
-  if uv pip install 'dimos[base,unitree]'; then
-    python -c "import dimos; print('dimos ok')" || warn 'dimos imported badly'
+  export PATH="$HOME/.local/bin:$PATH"
+  step 'phase6: DimOS (isolated venv)'
+  # dimos[base] pulls pyaudio, which has no wheel and compiles against Python.h + portaudio.
+  # Kept in this stage rather than --base: nothing before Phase 6 needs a compiler toolchain
+  # for audio.
+  sudo apt-get install -y python3.12-dev portaudio19-dev || \
+    warn 'could not install pyaudio build deps'
+  # DimOS resolves ~289 packages including torch and a second full CUDA stack, and it pins
+  # numpy. Installing that into the Phase 2 venv would let a Phase 6 dependency silently
+  # re-resolve numpy/jax under MJX -- trading a working locomotion policy for a robot-OS
+  # integration that isn't due until late September. It gets its own venv.
+  if [[ -x "$DIMOS_VENV/bin/python" ]]; then
+    echo "reusing existing venv at $DIMOS_VENV"
+  else
+    uv venv --python 3.12 "$DIMOS_VENV"
+  fi
+  if retry uv pip install --python "$DIMOS_VENV/bin/python" 'dimos[base,unitree]'; then
+    "$DIMOS_VENV/bin/python" -c "import dimos; print('dimos ok')" || warn 'dimos imported badly'
   else
     warn 'dimos install failed -- Phase 6 only, does not affect Phase 2. Revisit closer to Sept.'
   fi

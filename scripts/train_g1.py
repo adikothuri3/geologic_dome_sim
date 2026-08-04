@@ -19,11 +19,18 @@ from __future__ import annotations
 import argparse
 import functools
 import json
+import os
 import pathlib
 import subprocess
 import sys
 import time
 from datetime import datetime, timezone
+
+# Set before JAX initialises the GPU backend (it reads these at first device use, and this
+# module imports jax lazily inside main() so the ordering holds). The 4060 Ti also drives the
+# Windows desktop, so JAX's default 75% preallocation asks for 6.0 GiB of 8 GiB and fails.
+# Allocating on demand leaves the display its share; num_envs is the lever for the rest.
+os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 RUNS = REPO / "runs"

@@ -57,18 +57,21 @@ wsl.exe -d $Distro --user root -- /bin/true
 if ($LASTEXITCODE -ne 0) { throw "could not start $Distro as root" }
 
 Step "creating unix user '$UnixUser'"
-$mkuser = @"
+# Single-quoted here-string: PowerShell must not touch any '$' in this bash source.
+# (A double-quoted one ate `$(id ...)` as a PowerShell subexpression -- backslash does
+# not escape in PowerShell, backtick does.) The username is substituted explicitly.
+$mkuser = @'
 set -e
-if ! id -u $UnixUser >/dev/null 2>&1; then
-  adduser --disabled-password --gecos '' $UnixUser
-  usermod -aG sudo $UnixUser
-  echo '$UnixUser ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-$UnixUser
-  chmod 0440 /etc/sudoers.d/90-$UnixUser
+if ! id -u __USER__ >/dev/null 2>&1; then
+  adduser --disabled-password --gecos '' __USER__
+  usermod -aG sudo __USER__
+  echo '__USER__ ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-__USER__
+  chmod 0440 /etc/sudoers.d/90-__USER__
 fi
-printf '[user]\ndefault=$UnixUser\n\n[boot]\nsystemd=true\n' > /etc/wsl.conf
-echo "user ok: \$(id $UnixUser)"
-"@
-$mkuser = $mkuser -replace "`r`n", "`n"
+printf '[user]\ndefault=__USER__\n\n[boot]\nsystemd=true\n' > /etc/wsl.conf
+echo "user ok: $(id __USER__)"
+'@
+$mkuser = $mkuser -replace '__USER__', $UnixUser -replace "`r`n", "`n"
 wsl.exe -d $Distro --user root -- bash -lc $mkuser
 if ($LASTEXITCODE -ne 0) { throw 'user creation failed' }
 

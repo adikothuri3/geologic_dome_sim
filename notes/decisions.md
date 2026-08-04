@@ -1,6 +1,6 @@
 ---
 title: Decision log
-updated: 2026-08-02
+updated: 2026-08-03
 status: current
 ---
 
@@ -63,3 +63,15 @@ Append-only. Every entry: the choice, the reasoning, and the rejected alternativ
 **Choice:** Write frames with `imageio` + `imageio-ffmpeg`.
 **Why:** `mediapy` shells out to a system `ffmpeg` binary, which exists after `apt install` on Linux but not on Windows. `imageio-ffmpeg` ships its own binary as a wheel, so one code path covers both OSes — which matters because this project will keep straddling them.
 **Rejected:** `mediapy` plus a manual ffmpeg install on Windows (an extra install step and a PATH dependency, for no benefit).
+
+## 2026-08-03 — DimOS gets its own venv, isolated from the Phase 2 environment
+
+**Choice:** `--phase6` installs `dimos[base,unitree]` into `~/venvs/dimos`, not the shared `~/venvs/dome` that MJX training uses.
+**Why:** DimOS resolves ~289 packages, including torch, a second full CUDA stack, and its own numpy pin. Installing that alongside jax/MJX lets a Phase 6 dependency silently re-resolve numpy or a CUDA library underneath the locomotion policy. Phase 2 is due Aug 16 and Phase 6 not until Sept 27 — a working training environment is worth far more right now than import convenience later, and the two only need to exchange terrain files, not live objects.
+**Rejected:** One shared venv (simplest, but stakes a working Phase 2 on a Phase 6 dependency resolution); deferring DimOS entirely (leaves an unknown install risk sitting in front of a September deadline).
+
+## 2026-08-03 — Allocate VRAM on demand, not by preallocation
+
+**Choice:** Set `XLA_PYTHON_CLIENT_PREALLOCATE=false` in `check_phase2.py` and `train_g1.py` before JAX initialises its GPU backend.
+**Why:** This 4060 Ti also drives the Windows desktop, which holds ~2 GB. JAX's default 75 % preallocation asks for 6.0 GiB of 8 GiB, fails outright, and falls back down a retry ladder to a fragmented pool. On-demand allocation leaves the display its share and makes `num_envs` the single honest lever for VRAM (see [[setup]]).
+**Rejected:** Tuning `XLA_PYTHON_CLIENT_MEM_FRACTION` to a fixed slice — it hardcodes an assumption about what the desktop is using, which changes every time VS Code or a browser opens. Also rejected: leaving the default and living with the retry ladder, which works but starts every run fragmented.

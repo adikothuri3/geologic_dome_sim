@@ -1,6 +1,6 @@
 ---
 title: Robot Everest 2026 — Overview
-updated: 2026-08-02
+updated: 2026-08-03
 status: current
 ---
 
@@ -19,8 +19,9 @@ status: current
 
 > [!info] Current phase
 > **Phase 2 — First locomotion policy** (due Aug 16, 2026). Phase 1 landed Aug 2, a week
-> early, on native Windows. AMD SVM is now enabled and the WSL2 runtime is installed;
-> a reboot then `scripts/setup_wsl_stage2.ps1` finishes the environment — see [[setup]].
+> early, on native Windows, and now passes identically under WSL2. The Linux environment is
+> complete as of Aug 3 — JAX on the GPU, Playground loading `G1JoystickFlatTerrain` — so the
+> remaining work is the training run itself, not the setup. See [[setup]].
 
 ## Milestones
 
