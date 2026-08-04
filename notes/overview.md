@@ -41,6 +41,7 @@ Phase 7 requires two documents written before the window opens: [[capture-protoc
 ## Vault map
 
 - [[pipeline]] — the real→sim→real architecture and where each tool sits
+- [[locomotion-policy]] — what Phase 2 trains: every reward term, the observation space, what domain randomization varies
 - [[setup]] — the RTX 4060 Ti + WSL2 machine: what's installed, VRAM tactics
 - [[decisions]] — append-only log of choices, reasoning, rejected alternatives
 - [[experiments]] — append-only run log (training and reconstruction runs)
