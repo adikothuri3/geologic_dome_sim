@@ -14,3 +14,9 @@ runs/
 # big for git; the contact sheets are lab-notebook evidence and are kept.
 *.mp4
 reports/check_render.png
+
+# `.claude/skills/mujoco` is a junction to `.agents/skills/mujoco` (the real, tracked copy).
+# Windows git follows the junction and commits a duplicate; WSL git sees a symlink and
+# reports all ten files deleted -- which made every WSL-side tree look dirty and would block
+# train_g1.py, whose clean-tree gate keeps experiments.md rows reproducible.
+.claude/skills/mujoco

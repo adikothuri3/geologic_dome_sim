@@ -75,3 +75,9 @@ Append-only. Every entry: the choice, the reasoning, and the rejected alternativ
 **Choice:** Set `XLA_PYTHON_CLIENT_PREALLOCATE=false` in `check_phase2.py` and `train_g1.py` before JAX initialises its GPU backend.
 **Why:** This 4060 Ti also drives the Windows desktop, which holds ~2 GB. JAX's default 75 % preallocation asks for 6.0 GiB of 8 GiB, fails outright, and falls back down a retry ladder to a fragmented pool. On-demand allocation leaves the display its share and makes `num_envs` the single honest lever for VRAM (see [[setup]]).
 **Rejected:** Tuning `XLA_PYTHON_CLIENT_MEM_FRACTION` to a fixed slice — it hardcodes an assumption about what the desktop is using, which changes every time VS Code or a browser opens. Also rejected: leaving the default and living with the retry ladder, which works but starts every run fragmented.
+
+## 2026-08-03 — Pin `jax[cuda12]==0.9.2` until brax catches up
+
+**Choice:** Pin jax to 0.9.2 in `scripts/setup_wsl.sh` rather than tracking latest.
+**Why:** brax 0.14.2 — the newest release, and what Playground requires — still calls `jax.device_put_replicated` in `ppo/train.py:756` and three other places. jax deprecated that in 0.8.1 and **removed** it in 0.10.0 as part of the `pmap` → `jit(shard_map)` migration, so an unpinned install resolves to 0.11.0 and every PPO run dies at startup. brax declares only `jax>=0.4.6`, so nothing upstream prevents the bad resolution. 0.9.2 is the last release with the API; MJX, Warp and the G1 env all verified working on it, with `--smoke` reaching reward −3.07.
+**Rejected:** Shimming `device_put_replicated` ourselves — the drop-in needs explicit sharding, and hand-rolling device placement under brax's PPO to dodge a version pin is a poor trade. Also rejected: pinning jax without pinning down *why*, which is how a pin outlives its reason — unpin when brax ships a fix, and re-verify with `train_g1.py --smoke`.

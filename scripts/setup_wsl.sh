@@ -170,8 +170,16 @@ if [[ $DO_P2 -eq 1 ]]; then
   # shellcheck disable=SC1091
   source "$VENV/bin/activate"
 
-  step 'phase2: JAX with CUDA 12'
-  retry uv pip install -U "jax[cuda12]"
+  step 'phase2: JAX with CUDA 12 (pinned -- see below)'
+  # Pinned, and it must stay pinned. brax 0.14.2 (the newest release, and what Playground
+  # requires) still calls jax.device_put_replicated in ppo/train.py:756. jax deprecated that
+  # in 0.8.1 and REMOVED it in 0.10.0 with the pmap -> jit(shard_map) migration, so an
+  # unpinned `jax[cuda12]` resolves to 0.11.0 and every PPO run dies at startup with
+  # `AttributeError: jax.device_put_replicated is deprecated`. brax declares only
+  # `jax>=0.4.6`, so nothing upstream prevents this.
+  # 0.9.2 is the last release with the API. Revisit when brax ships a fix; verify with
+  # scripts/train_g1.py --smoke before unpinning.
+  retry uv pip install "jax[cuda12]==0.9.2"
   python - <<'PY'
 import jax
 devs = jax.devices()

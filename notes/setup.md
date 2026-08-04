@@ -29,7 +29,7 @@ ships B550 boards that way, and no OS-side workaround exists on consumer Gigabyt
 | Ubuntu 24.04 distro | ✅ default user `aditya`, `systemd=true` |
 | GPU passthrough | ✅ `nvidia-smi` in WSL: RTX 4060 Ti, 8188 MiB, driver 610.62 |
 | Offscreen rendering | ✅ **hardware EGL, first try** — no NVIDIA ICD file, no osmesa fallback |
-| JAX-CUDA | ✅ jax 0.11.0, `[CudaDevice(id=0)]` |
+| JAX-CUDA | ✅ jax **0.9.2, pinned** (see below), `[CudaDevice(id=0)]` |
 | Playground + MJX | ✅ playground 0.2.0, brax 0.14.2, `G1JoystickFlatTerrain` loads |
 | Open3D (Phase 4) | ✅ 0.19.0 |
 | Phase 1 parity on Linux | ✅ all three scripts pass, MP4 renders |
@@ -45,6 +45,12 @@ hang an unattended script.
 > attempts at three different steps before it was understood. `setup_wsl.sh` now wraps every
 > network call in `retry()` and exports `GIT_HTTP_LOW_SPEED_TIME=20` so a dead socket aborts
 > in 20 s instead of hanging. If an install stalls silently, this is the first suspect.
+
+> [!warning] jax is pinned to 0.9.2 — do not `-U` it
+> brax 0.14.2 (newest, and what Playground requires) still calls `jax.device_put_replicated`,
+> which jax **removed in 0.10.0**. Unpinning resolves to 0.11.0 and every PPO run dies at
+> startup with `AttributeError`. See [[decisions]]; unpin only when brax ships a fix, and
+> re-verify with `python scripts/train_g1.py --smoke`.
 
 Two consequences worth knowing before debugging anything in WSL:
 
