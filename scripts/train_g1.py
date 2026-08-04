@@ -223,11 +223,15 @@ def main() -> None:
             ppo_networks.make_ppo_networks, **ppo_params.network_factory
         )
 
-    # The collision mode goes in the run_id: a full-collision run is a different physics model,
-    # not a rerun, and must not land in the same directory or read as one in experiments.md.
+    # Collision mode and step budget both go in the run_id. A full-collision run is a different
+    # physics model, not a rerun, and a 100M run is not a shorter 200M one -- neither may land
+    # in the other's directory or read as the same experiment. Date alone is not unique enough:
+    # a same-day rerun previously collided, and force=True on the save makes that silent
+    # clobbering rather than a loud error.
     collision = "full-collision" if args.full_collision else "feet-only"
+    budget = f"{num_timesteps // 1_000_000}M"
     run_id = (f"{datetime.now().astimezone().strftime('%Y-%m-%d')}-g1-joystick-{collision}"
-              + ("-smoke" if args.smoke else ""))
+              f"-{budget}" + ("-smoke" if args.smoke else ""))
     out_dir = RUNS / run_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
