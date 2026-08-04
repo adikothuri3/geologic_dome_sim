@@ -61,6 +61,29 @@ Two consequences worth knowing before debugging anything in WSL:
   is a one-time cost, already paid; a first training run on a fresh box will pay it again and
   can look like a hang.
 
+## The robot: Menagerie `unitree_g1`, and only that
+
+> [!important] One source of robot geometry
+> Every simulated G1 in this project is Menagerie's `unitree_g1` — meshes, kinematics,
+> inertials — with our own MJCF layered on top. **If it isn't in
+> `mujoco_menagerie/unitree_g1/assets`, it isn't the robot.** Playground's
+> `g1_mjx_feetonly.xml` references those STLs directly, so its G1 and the Phase 1 G1 are the
+> same machine; Playground only adds MJX-friendly collision primitives, sensors and actuators.
+> See [[decisions]].
+
+Our own layers, all in `sim/`, all generated rather than hand-drawn:
+
+| File | Made by | What it is |
+| --- | --- | --- |
+| `scene_g1_hfield.xml` | hand, Phase 1 | G1 on a numpy heightfield, no floor plane |
+| `g1_full_collision.xml` | `scripts/make_full_collision_xml.py` | every link collidable; each box sized from that body's Menagerie mesh |
+| `scene_g1_full_collision.xml` | hand | the flat-terrain scene, including the above instead of the feet-only body |
+
+Gate the generated model with `python scripts/check_full_collision.py` before training on it:
+it asserts the environment contract survives, that nothing self-collides at the nominal pose,
+that only the feet touch the ground when settled, and that a toppled robot is actually caught
+by the new geometry.
+
 ## The Windows side (still live, still useful)
 
 Phase 1 was built here while WSL2 was blocked on firmware, and it still works: MuJoCo physics
@@ -162,7 +185,9 @@ Note: `npx skills add` needed `http.sslBackend=schannel` (via `GIT_CONFIG_*` env
 - `lab-notebook/` — weekly markdown lab notebook, outside the vault
 - `scripts/` — `setup_wsl_stage2.ps1` (Windows: distro + user), `setup_wsl.sh` (Linux env),
   `check_render.py` (GL gate), `inspect_model.py`, `check_phase2.py` (JAX GPU + G1 env),
-  `train_g1.py` (Phase 2 training, writes the [[experiments]] row)
+  `train_g1.py` (Phase 2 training, writes the [[experiments]] row),
+  `make_full_collision_xml.py` + `check_full_collision.py` (full-body collision model and its
+  gate), `render_policy.py` (trained policy → MP4)
 - `terrain/` — `make_hfield.py` (numpy → `hfield_data`, `sample_height`), `drop_test.py` (contact gate)
 - `sim/` — `scene_g1_hfield.xml` (G1 + heightfield, no floor plane), `pose_and_render.py` (the demo)
 - `runs/` — per-run `config.json` + `progress.json` + checkpoints (gitignored)

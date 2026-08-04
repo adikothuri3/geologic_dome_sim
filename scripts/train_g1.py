@@ -39,6 +39,50 @@ EXPERIMENTS = REPO / "notes" / "experiments.md"
 ENV_NAME = "G1JoystickFlatTerrain"
 NUM_MINIBATCHES = 32
 
+# Our full-collision scene. Playground resolves <include> and mesh paths relative to the
+# top-level scene file, so this has to be executed from inside its own xmls/ directory --
+# a copy elsewhere loads without meshes. sim/ holds the source of truth; sync_full_collision_scene()
+# copies it into place.
+FULL_COLLISION_SCENE = REPO / "sim" / "scene_g1_full_collision.xml"
+FULL_COLLISION_BODY = REPO / "sim" / "g1_full_collision.xml"
+FULL_COLLISION_TASK = "full_collision"
+
+# Constraint rows per env. Upstream sets njmax = 29*2 + 8*4 = 90 and the feet-only baseline
+# already logged `nefc overflow - please increase njmax to 93`, meaning constraints were being
+# silently dropped. Adding six ground-contact pairs makes that far worse, so both modes get a
+# raised value; it is a per-env buffer, so this costs VRAM linearly in num_envs.
+NJMAX_FEET_ONLY = 128
+NJMAX_FULL_COLLISION = 384
+
+
+def sync_full_collision_scene():
+    """Copy our scene next to Playground's, and teach the env how to find it.
+
+    Returns the task name to construct Joystick with.
+    """
+    import shutil
+
+    from mujoco_playground._src.locomotion.g1 import g1_constants as consts
+
+    xmls_dir = consts.task_to_xml("flat_terrain").parent
+    if not FULL_COLLISION_BODY.exists():
+        sys.exit(f"{rel(FULL_COLLISION_BODY)} is missing. "
+                 "Generate it with: python scripts/make_full_collision_xml.py")
+    shutil.copyfile(FULL_COLLISION_BODY, xmls_dir / FULL_COLLISION_BODY.name)
+    dest = xmls_dir / FULL_COLLISION_SCENE.name
+    shutil.copyfile(FULL_COLLISION_SCENE, dest)
+
+    original = consts.task_to_xml
+
+    def task_to_xml(task_name):
+        if task_name == FULL_COLLISION_TASK:
+            return dest
+        return original(task_name)
+
+    consts.task_to_xml = task_to_xml
+    print(f"full-collision scene -> {dest}")
+    return FULL_COLLISION_TASK
+
 
 def rel(p: pathlib.Path) -> str:
     """Repo-relative path for display, falling back to absolute rather than raising.
@@ -108,6 +152,10 @@ def main() -> None:
     ap.add_argument("--num-timesteps", type=int, default=None)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--allow-dirty", action="store_true")
+    ap.add_argument("--full-collision", action="store_true",
+                    help="collide shins, thighs and hands with the ground, not just feet")
+    ap.add_argument("--njmax", type=int, default=None,
+                    help="constraint rows per env; overrides the mode default")
     args = ap.parse_args()
 
     commit = git_commit(args.allow_dirty or args.smoke)
@@ -119,8 +167,10 @@ def main() -> None:
     else:
         # Skill cap for this box. 2048 is a quarter of upstream's 8192.
         num_envs = args.num_envs or 2048
-        num_timesteps = args.num_timesteps or 100_000_000
-        num_evals = 10
+        # Upstream's default. The 100M feet-only baseline peaked at 78M (reward 4.53) and then
+        # drifted back to 2.96, so the extra budget is about stability, not just more steps.
+        num_timesteps = args.num_timesteps or 200_000_000
+        num_evals = 20
 
     if num_envs % NUM_MINIBATCHES != 0:
         sys.exit(f"num_envs ({num_envs}) must be divisible by num_minibatches ({NUM_MINIBATCHES})")
@@ -136,8 +186,24 @@ def main() -> None:
     if not any(d.platform == "gpu" for d in devices):
         sys.exit("No GPU visible to JAX. Run scripts/check_phase2.py first.")
 
-    env = registry.load(ENV_NAME)
     env_cfg = registry.get_default_config(ENV_NAME)
+    env_cfg.njmax = args.njmax or (
+        NJMAX_FULL_COLLISION if args.full_collision else NJMAX_FEET_ONLY
+    )
+
+    if args.full_collision:
+        # Built directly rather than through registry.load, which is hardwired to the
+        # feet-only task. Domain randomisation and the PPO config still come from the
+        # registry entry, so only the collision model differs from the baseline.
+        from mujoco_playground._src.locomotion.g1 import joystick as g1_joystick
+
+        task = sync_full_collision_scene()
+        env = g1_joystick.Joystick(task=task, config=env_cfg)
+        eval_env = g1_joystick.Joystick(task=task, config=env_cfg)
+    else:
+        env = registry.load(ENV_NAME, config=env_cfg)
+        eval_env = registry.load(ENV_NAME, config=env_cfg)
+
     ppo_params = locomotion_params.brax_ppo_config(ENV_NAME)
 
     training_params = dict(ppo_params)
@@ -157,7 +223,11 @@ def main() -> None:
             ppo_networks.make_ppo_networks, **ppo_params.network_factory
         )
 
-    run_id = f"{datetime.now().astimezone().strftime('%Y-%m-%d')}-g1-joystick" + ("-smoke" if args.smoke else "")
+    # The collision mode goes in the run_id: a full-collision run is a different physics model,
+    # not a rerun, and must not land in the same directory or read as one in experiments.md.
+    collision = "full-collision" if args.full_collision else "feet-only"
+    run_id = (f"{datetime.now().astimezone().strftime('%Y-%m-%d')}-g1-joystick-{collision}"
+              + ("-smoke" if args.smoke else ""))
     out_dir = RUNS / run_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -165,18 +235,21 @@ def main() -> None:
         "run_id": run_id,
         "commit": commit,
         "env": ENV_NAME,
+        "collision": collision,
         "started": datetime.now(timezone.utc).isoformat(),
         "device": str(devices[0]),
         "ppo": {k: (v if isinstance(v, (int, float, str, bool)) else str(v))
                 for k, v in training_params.items()},
         "env_cfg": {"ctrl_dt": env_cfg.ctrl_dt, "sim_dt": env_cfg.sim_dt,
-                    "episode_length": env_cfg.episode_length},
+                    "episode_length": env_cfg.episode_length,
+                    "njmax": int(env_cfg.njmax)},
     }
     (out_dir / "config.json").write_text(json.dumps(config_blob, indent=2), encoding="utf-8")
 
     print(f"run_id     {run_id}")
     print(f"commit     {commit}")
     print(f"device     {devices[0]}")
+    print(f"collision  {collision}  (njmax {int(env_cfg.njmax)})")
     print(f"num_envs   {num_envs}  (batch_size {batch_size} x num_minibatches {NUM_MINIBATCHES})")
     print(f"timesteps  {num_timesteps:,}")
     print(f"output     {rel(out_dir)}\n")
@@ -206,7 +279,7 @@ def main() -> None:
     try:
         make_inference_fn, params, _ = train_fn(
             environment=env,
-            eval_env=registry.load(ENV_NAME, config=env_cfg),
+            eval_env=eval_env,
             wrap_env_fn=wrapper.wrap_for_brax_training,
         )
         from etils import epath
@@ -223,11 +296,12 @@ def main() -> None:
         final = history[-1]["reward"] if history else float("nan")
         if status == "ok":
             takeaway = ("smoke test only, not a usable policy" if args.smoke
-                        else f"baseline at {num_envs} envs; reward {final:.1f}")
+                        else f"{collision} at {num_envs} envs; reward {final:.1f}")
         append_experiment_row({
             "run_id": run_id,
             "commit": commit,
-            "config": f"{ENV_NAME}, PPO, bs={batch_size}, nmb={NUM_MINIBATCHES}, "
+            "config": f"{ENV_NAME}, **{collision}**, PPO, bs={batch_size}, "
+                      f"nmb={NUM_MINIBATCHES}, njmax={int(env_cfg.njmax)}, "
                       f"steps={num_timesteps:,}, seed={args.seed}",
             "n_envs": num_envs,
             "metrics": f"final eval reward {final:.2f}, best {best:.2f}, {wall_min:.0f} min"
