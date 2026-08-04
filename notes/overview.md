@@ -18,17 +18,18 @@ status: current
 - Commitment: ~12–15 hrs/week; every phase ends in a demo, not a slide deck
 
 > [!info] Current phase
-> **Phase 2 — First locomotion policy** (due Aug 16, 2026). Phase 1 landed Aug 2, a week
-> early, on native Windows, and now passes identically under WSL2. The Linux environment is
-> complete as of Aug 3 — JAX on the GPU, Playground loading `G1JoystickFlatTerrain` — so the
-> remaining work is the training run itself, not the setup. See [[setup]].
+> **Phase 3 — LingBot-Map reconstruction** (due Aug 23, 2026). Phases 1 and 2 both landed
+> early: Phase 1 on Aug 2, Phase 2 on Aug 4 with a self-trained joystick policy walking and
+> turning under command on a full-body-collision G1 — see [[locomotion-policy]] for every
+> reward term and [[experiments]] for the runs. Phase 3 is blocked only on footage: it needs a
+> phone video of a local trail, which nothing in the repo can produce.
 
 ## Milestones
 
 | Due | Phase | Demo | Status |
 | --- | --- | --- | --- |
 | Aug 9 | 1 — MuJoCo fluency | G1 standing on a numpy-generated heightfield, rendered as video | **done** (Aug 2) |
-| Aug 16 | 2 — First locomotion policy | Self-trained joystick policy walking, every reward term explained | not started |
+| Aug 16 | 2 — First locomotion policy | Self-trained joystick policy walking, every reward term explained | **done** (Aug 4) |
 | Aug 23 | 3 — LingBot-Map reconstruction | Phone video → dense point cloud of a local trail, camera trajectory overlaid | not started |
 | Aug 30 | 4 — Real2Sim terrain | G1 walking (Phase 2 policy) on MuJoCo terrain built from own footage — hackathon demo Aug 29 | not started |
 | Sept 13 | 5 — Sim2Real training loop | Fine-tuned policy beats baseline on recon terrain, with metrics table | not started |
