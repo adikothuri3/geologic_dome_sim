@@ -15,6 +15,8 @@ Fill ``hfield_data`` BEFORE constructing a Renderer, otherwise ``mujoco.mjr_uplo
 must be called or the visuals will not match the physics.
 """
 
+import pathlib
+
 import mujoco
 import numpy as np
 
@@ -60,6 +62,52 @@ def fill_hfield(model: mujoco.MjModel, name: str = "terrain", **kwargs) -> np.nd
 
     adr = int(model.hfield_adr[hid])
     model.hfield_data[adr : adr + nrow * ncol] = grid.ravel()
+    return grid
+
+
+def load_asset(name: str):
+    """Load a reconstruction-derived heightfield built by recon/cloud_to_hfield.py.
+
+    Returns ``(grid, meta)`` where grid is the normalized [0, 1] array and meta
+    carries the real-world ``size`` the <hfield> must declare for metres to survive.
+    """
+    import json
+
+    d = pathlib.Path(__file__).resolve().parent / "assets"
+    grid = np.load(d / f"{name}.npy")
+    meta = json.loads((d / f"{name}.json").read_text())
+    return grid, meta
+
+
+def fill_hfield_from_asset(model: mujoco.MjModel, name: str,
+                           hfield_name: str = "terrain") -> np.ndarray:
+    """Write a reconstruction heightfield into ``model``. Returns the grid.
+
+    Same contract as ``fill_hfield``: writes ``model.hfield_data`` directly, so
+    row 0 is the -y edge and ``sample_height`` stays valid.
+    """
+    grid, meta = load_asset(name)
+    hid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_HFIELD, hfield_name)
+    if hid == -1:
+        raise ValueError(f"no hfield named {hfield_name!r} in this model")
+
+    nrow, ncol = int(model.hfield_nrow[hid]), int(model.hfield_ncol[hid])
+    if (nrow, ncol) != grid.shape:
+        raise ValueError(
+            f"<hfield> declares {nrow}x{ncol} but asset {name!r} is "
+            f"{grid.shape[0]}x{grid.shape[1]}; copy meta['hfield_xml'] into the scene")
+
+    # The grid is normalized to [0, 1]; every real metre lives in `size`. A scene
+    # still carrying a previous build's size silently rescales the whole terrain,
+    # and nothing downstream would notice.
+    want, have = np.asarray(meta["size"], float), np.asarray(model.hfield_size[hid], float)
+    if not np.allclose(want, have, atol=1e-4):
+        raise ValueError(
+            f"<hfield> size {have.tolist()} does not match asset {name!r} "
+            f"({want.tolist()}); copy meta['hfield_xml'] into the scene")
+
+    adr = int(model.hfield_adr[hid])
+    model.hfield_data[adr: adr + nrow * ncol] = grid.ravel()
     return grid
 
 

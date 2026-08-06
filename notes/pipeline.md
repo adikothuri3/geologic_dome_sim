@@ -1,6 +1,6 @@
 ---
 title: Pipeline architecture
-updated: 2026-08-01
+updated: 2026-08-06
 status: current
 ---
 
@@ -37,6 +37,8 @@ Open-source (Apache 2.0) **streaming** 3D-reconstruction foundation model from R
 
 Things to master: streaming vs. offline reconstruction, the Geometric Context Transformer (anchor context + pose-reference window + trajectory memory), monocular scale ambiguity, confidence filtering, the viser viewer. Known limits — low-texture surfaces (snow!), motion blur, exposure swings, the ~320-view RoPE limit — are tracked in [[open-questions]].
 
+Our wrapper lives in `recon/` (see [[setup]] for the install and this box's measured ceilings). Streaming works as advertised — bounded KV cache, flat VRAM over any clip length — which is what makes the Phase 6 DimOS module and Phase 7 live pipeline possible at all. What actually bounds a reconstruction here is **drift over clip length**: roughly 25 s of footage per globally consistent scene on 8 GB, in *either* mode, because the KV cache that bounds memory also bounds how far back the model remembers ([[open-questions]]). Upstream's `demo.py` also exports nothing, so `recon/reconstruct.py` writes the cloud, the trajectory and a run record itself.
+
 Links: paper arXiv 2604.14141 · official Robbyant repo (`batch_demo.py`, viser demo) · MarkTechPost hands-on tutorial (July 2026)
 
 ### DimensionalOS (DimOS)
@@ -50,9 +52,32 @@ Links: [dimos](https://github.com/dimensionalOS/dimos) (README + AGENTS.md first
 ## Terrain conversion: two paths, build both
 
 1. **Heightfield first** — grid XY at 5–10 cm cells, robust max-z per cell, fill holes → MuJoCo `hfield`. Fast and robust for walking terrain.
-2. **Mesh second** — Poisson / ball-pivoting surface reconstruction → decimate to <200k faces → static collision mesh. Needed for overhangs and large boulders.
+2. **Mesh second** — Poisson / ball-pivoting surface reconstruction → decimate to <200k faces → static collision mesh. Needed for overhangs and large boulders. **Not built yet.**
 
-Scale calibration is mandatory before either path (monocular reconstruction has arbitrary scale): at home, film two markers a measured distance apart; on the expedition, use Pemba's known dimensions or GPS track length. See [[glossary]] for terms and [[open-questions]] for the unresolved calibration question.
+Scale calibration is mandatory before either path (monocular reconstruction has arbitrary scale): at home, film two markers a measured distance apart; on the expedition, use Pemba's known dimensions or GPS track length. See [[glossary]] for terms.
+
+### The chain, as it actually runs (Aug 6)
+
+```bash
+recon/reconstruct.py    --frames <dir> --out <run> --model_path <ckpt> [--mask_sky]
+recon/calibrate_scale.py  <run>                    # -> scale.json (m/unit + ground plane)
+recon/clean_cloud.py      <run> --scale auto       # -> cloud_clean.ply, in metres
+recon/cloud_to_hfield.py  <run> --name <asset> --crop [--surface ground] [--smooth 2]
+terrain/drop_test.py      --asset <asset>          # terrain gate
+scripts/settle_g1_recon.py --asset <asset> --render # robot gate
+```
+
+Three things this shipped that the plan did not anticipate:
+
+- **`--surface ground` vs `top`.** Robust max-z is right for an outdoor trail, where the upper surface *is* what you walk on. Indoors it makes every partition a 2.3 m spire and the hfield a canyon, so `ground` takes a near-minimum per cell and rejects cells more than `--ground-tol` above the floor. Furniture and walls are then absent — this terrain is a walking surface, not an obstacle course.
+- **Unobserved cells are filled flat, not interpolated.** A walkthrough observes a corridor-shaped sliver of its bounding box (9% here). Nearest-fill smears walls across regions nobody looked at. The observation mask ships beside the asset.
+- **Smoothing is not cosmetic.** Monocular depth noise puts ~5 cm of roughness on flat carpet, which topples a keyframe-posed G1. `--smooth 2` (10 cm sigma) is what makes it stand; the sigma is recorded in the asset's JSON because it changes the terrain a policy sees.
+
+### Contact parameters (Phase 4, measured)
+
+Terrain geom: `solref="0.008 1" solimp="0.9 0.95 0.001"`, `friction="1 0.005 0.0001"`, `condim="3"`, timestep 0.002 s.
+
+`solref` 0.008 is 4× the timestep and mixes with Menagerie's foot geoms to 0.014. Menagerie's ankle geoms carry their own `solref` (0.02) that wins on foot contacts, so a settled G1 sinks **0.3 mm on flat ground and ~5 mm where a foot corner loads a sloped 5 cm cell**. That is foot compliance, not terrain error — the gate in `scripts/settle_g1_recon.py` allows 10 mm and counts *terrain* contacts only.
 
 ## Training recipe (Phase 5)
 

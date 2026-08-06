@@ -1,6 +1,6 @@
 ---
 title: Decision log
-updated: 2026-08-03
+updated: 2026-08-05
 status: current
 ---
 
@@ -94,3 +94,17 @@ Append-only. Every entry: the choice, the reasoning, and the rejected alternativ
 **Why:** Playground collides feet only — fast and adequate on a flat plane, and wrong for this project. On reconstructed Everest terrain a shin, knee, hip or torso meeting rock is a real event, and a policy that has never felt one has a blind spot the simulator never showed it. Generating each primitive from its body's Menagerie mesh bounding box means the collision volume follows the real robot instead of hand-guessed capsules. The gate caught two faults that would otherwise have been invisible: upstream's `left_thigh` and `left_shin` capsules interpenetrate by 16 mm at the nominal pose (harmless while nothing collides, a robot-toppling force once broadphase is on), and the shin capsules are radius 0.08 — a 16 cm-thick shin — which grazes the floor while merely standing and would have poisoned `feet_slip`, `feet_air_time` and the contact sensors with phantom ground contact.
 **Consequence worth knowing:** enabling collision also revives `left_foot_right_shin_found` / `right_foot_left_shin_found`. Those sensors are read by `_get_termination()` to catch leg crossing, but their contact `<pair>`s are commented out upstream, so that half of the termination test could never fire in the feet-only baseline.
 **Rejected:** Menagerie's mesh collision geoms (highest fidelity; convex-mesh collision is far too slow for 200M GPU steps — revisit for a low-env-count Phase 5 validation run). Also rejected: hand-placing capsules, where one wrong offset gives a robot resting on invisible geometry and the render looks fine.
+
+## 2026-08-05 — Reconstruct into our own export, and only trust one window
+
+**Choice:** `recon/reconstruct.py` wraps LingBot-Map's model API rather than calling upstream's `demo.py`, writes `cloud.ply` + `trajectory.npz` + `run.json` itself, and — until cross-window alignment is fixed — clips are sized to fit a **single window** (~124 frames at `window_size 24`, `keyframe_interval 6`).
+**Why:** `demo.py` exports nothing; it runs inference and opens a viser viewer, so closing the tab discards the reconstruction. Phase 4 needs a cloud and a camera trajectory on disk, so an export layer has to exist somewhere and owning it lets us record the run config, VRAM peak and alignment diagnostics in the same place. The single-window rule is empirical, not cautious: stitched runs produced camera paths **34–38×** the scene extent with a hard pose jump at a window boundary, and tripling the overlap made it worse — the failure is scale estimation on low-texture overlap, not overlap size. The same clip in one window lands at 2.8×. `run.json` records `traj_length_over_extent` so the check is automatic rather than remembered.
+**Why not just use their viewer:** we still do — `recon/view_viser.py` serves the *exported* files, so any past run reopens in seconds without a GPU, instead of re-running inference to look at a result.
+**Rejected:** `demo_render/batch_demo.py --save_predictions`, which does export, but pulls in kaolin plus a CUDA extension build for a rendering path we don't need. Also rejected: accepting the stitched full-clip cloud as the deliverable — it is visibly wrong, and shipping a broken artefact into Phase 4 would surface as mysterious terrain geometry three weeks later.
+**Corrected 2026-08-05:** this entry originally also rejected streaming mode "because it holds every frame on the GPU." That was our bug, not the model's behaviour — streaming slices per frame exactly as windowed does, and runs the full clip at flat 5.63 GB. The single-window rule survives the correction, but for a different reason than first written: the limit is ~25 s of footage per consistent scene in *either* mode, set by drift once the scene leaves the KV cache's memory horizon, not by window stitching alone. See [[setup]].
+
+## 2026-08-05 — LingBot-Map gets its own venv
+
+**Choice:** `scripts/setup_lingbot.sh` installs into `~/venvs/lingbot`, not the shared `~/venvs/dome`.
+**Why:** Upstream pins torch 2.8.0/cu128; `~/venvs/dome` holds the `jax==0.9.2` pin that brax needs. One venv means two CUDA stacks negotiating over the same numpy, and a Phase 3 install could silently break the Phase 2 training environment. Same reasoning as the DimOS venv above, and it cost nothing — the two exchange PLY files, not live objects.
+**Consequence:** the viewer needs viser *and* Open3D, which live in different venvs; viser was added to `~/venvs/dome` (the one with Open3D) rather than Open3D to the recon venv, to keep the working inference environment untouched.

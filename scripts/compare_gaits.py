@@ -31,6 +31,19 @@ sys.path.insert(0, str(REPO / "scripts"))
 ENV_NAME = "G1JoystickFlatTerrain"
 
 
+# One env per collision model, reused across runs. Each MJX/warp env holds a few hundred MB of
+# device buffers, so building one per run OOMs on this 8 GB card at three runs -- and the runs
+# being compared share a collision model anyway, since that is what makes them comparable.
+_ENV_CACHE: dict = {}
+
+
+def get_env(collision: str):
+    if collision not in _ENV_CACHE:
+        import render_policy as rp
+        _ENV_CACHE[collision] = rp.build_env(collision)
+    return _ENV_CACHE[collision]
+
+
 def rollout(run_dir: pathlib.Path, command, seconds: float, seed: int, use_best: bool):
     import jax
     import jax.numpy as jp
@@ -41,10 +54,8 @@ def rollout(run_dir: pathlib.Path, command, seconds: float, seed: int, use_best:
     from mujoco_playground.config import locomotion_params
     from orbax import checkpoint as ocp
 
-    import render_policy as rp
-
     blob = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
-    env = rp.build_env(blob.get("collision", "feet-only"))
+    env = get_env(blob.get("collision", "feet-only"))
 
     params_path = (run_dir / "params").resolve()
     if use_best and (run_dir / "best.json").exists():
@@ -116,7 +127,7 @@ def rollout(run_dir: pathlib.Path, command, seconds: float, seed: int, use_best:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("runs", nargs=2)
+    ap.add_argument("runs", nargs="+", help="two or more run directories to compare")
     ap.add_argument("--command", nargs=3, type=float, default=[1.0, 0.0, 0.0])
     ap.add_argument("--seconds", type=float, default=10.0)
     ap.add_argument("--seed", type=int, default=0)
@@ -149,11 +160,14 @@ def main() -> None:
         ("swing fraction", lambda m: " / ".join(f"{s:.2f}" for s in m["swing_fraction"])),
         ("pelvis height (m)", lambda m: f"{m['pelvis_h_mean']:.3f} +/- {m['pelvis_h_std']:.3f}"),
     ]
+    # Printed one column per run rather than one row: with three or more runs the rows get
+    # unreadably wide, and the interesting comparison is down a metric, not across.
     names = list(results)
-    w = max(len(n) for n in names) + 2
-    print(f"{'':22s}" + "".join(f"{n:<{w}}" for n in names))
     for label, fn in rows:
-        print(f"{label:22s}" + "".join(f"{fn(results[n]):<{w}}" for n in names))
+        print(f"{label}")
+        for n in names:
+            print(f"    {n[-46:]:<48s} {fn(results[n])}")
+        print()
 
     print("\nSwing fraction is the share of time a foot is off the ground; higher means longer\n"
           "swing phases. That is the quantity feet_air_time pays for, so it is where a change\n"

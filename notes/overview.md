@@ -1,6 +1,6 @@
 ---
 title: Robot Everest 2026 — Overview
-updated: 2026-08-03
+updated: 2026-08-06
 status: current
 ---
 
@@ -21,8 +21,19 @@ status: current
 > **Phase 3 — LingBot-Map reconstruction** (due Aug 23, 2026). Phases 1 and 2 both landed
 > early: Phase 1 on Aug 2, Phase 2 on Aug 4 with a self-trained joystick policy walking and
 > turning under command on a full-body-collision G1 — see [[locomotion-policy]] for every
-> reward term and [[experiments]] for the runs. Phase 3 is blocked only on footage: it needs a
-> phone video of a local trail, which nothing in the repo can produce.
+> reward term and [[experiments]] for the runs.
+>
+> **The whole chain runs end to end** (Aug 6): video → cloud → scale → cleanup → MuJoCo
+> heightfield → G1 standing on it, every stage gated. Proven on upstream's `example/loop`
+> office walkthrough: 4.07M points → 964k cleaned and metric → a 572×357 hfield at 5 cm,
+> with the G1 settling on it at 0.3 mm foot penetration. Commands in [[pipeline]].
+>
+> Still **blocked on footage** for the Phase 3/4 demos themselves, which require an *outdoor
+> trail*: rocky trail, boulder field, steep stairs or rubble. Both stand-ins were borrowed
+> from upstream because our own indoor footage fails rule zero in [[capture-protocol]].
+> Two hard limits surfaced along the way, both in [[open-questions]]: this box cannot reach
+> upstream's default memory horizon, and an *indoor* scene needs `--surface ground` because
+> robust max-z turns furniture into a canyon.
 
 ## Milestones
 
@@ -30,8 +41,8 @@ status: current
 | --- | --- | --- | --- |
 | Aug 9 | 1 — MuJoCo fluency | G1 standing on a numpy-generated heightfield, rendered as video | **done** (Aug 2) |
 | Aug 16 | 2 — First locomotion policy | Self-trained joystick policy walking, every reward term explained | **done** (Aug 4) |
-| Aug 23 | 3 — LingBot-Map reconstruction | Phone video → dense point cloud of a local trail, camera trajectory overlaid | not started |
-| Aug 30 | 4 — Real2Sim terrain | G1 walking (Phase 2 policy) on MuJoCo terrain built from own footage — hackathon demo Aug 29 | not started |
+| Aug 23 | 3 — LingBot-Map reconstruction | Phone video → dense point cloud of a local trail, camera trajectory overlaid | **toolchain done** (Aug 5), awaiting outdoor trail footage |
+| Aug 30 | 4 — Real2Sim terrain | G1 walking (Phase 2 policy) on MuJoCo terrain built from own footage — hackathon demo Aug 29 | **chain done** (Aug 6) on upstream footage — G1 *stands*; walking + own footage outstanding |
 | Sept 13 | 5 — Sim2Real training loop | Fine-tuned policy beats baseline on recon terrain, with metrics table | not started |
 | Sept 27 | 6 — DimOS integration | One command: replayed robot session → MuJoCo-ready terrain file | not started |
 | Oct 5–20 | 7 — Live expedition pipeline | Daily recon + terrain analytics from Pemba's Everest footage | not started |

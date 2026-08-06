@@ -1,0 +1,81 @@
+<mujoco model="g1 on reconstructed terrain">
+  <!-- Phase 4 scene: the G1 standing on terrain built from real footage, not from a
+       sine surface. Same structure as scene_g1_hfield.xml (see that file for why the
+       <compiler> must follow the <include>, and why Menagerie's scene.xml is not used).
+
+       The <hfield> dimensions here are NOT free: they must match whatever
+       recon/cloud_to_hfield.py emitted, because terrain/make_hfield.py writes the
+       asset straight into model.hfield_data and refuses a shape mismatch. The line
+       below is copied verbatim from terrain/assets/loop_office.json's `hfield_xml`.
+
+       Provenance of these numbers: upstream LingBot-Map `example/loop`, an office
+       walkthrough, scaled 2.4938 m/unit against a 1.5 m camera height, cleaned and
+       ground-aligned, rasterized at 5 cm in `ground` mode (10th-percentile z, cells
+       more than 0.5 m above the floor rejected as structure).
+
+       Two honest limitations:
+       * Only 11% of the field is observed ground. Unobserved cells sit at floor level
+         rather than being interpolated, so they are flat and walkable instead of
+         invented walls. terrain/assets/loop_office_observed.npy is the mask; keep the
+         robot on observed ground when the distinction matters.
+       * `ground` mode deliberately drops walls and furniture, because max-z turns
+         every cubicle partition into a 2 m spire and the heightfield becomes a canyon.
+         So this terrain has no obstacles -- it is a walking surface only. Outdoor
+         trail footage, the actual Phase 4 target, wants `--surface top` instead. -->
+
+  <include file="menagerie/unitree_g1/g1.xml"/>
+
+  <compiler angle="radian" meshdir="menagerie/unitree_g1/assets"
+            texturedir="menagerie/unitree_g1/assets"/>
+
+  <statistic center="0 0 0.6" extent="1.8"/>
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="140" elevation="-20" offwidth="1280" offheight="720"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0"
+             width="512" height="3072"/>
+    <texture type="2d" name="terrain_tex" builtin="checker" mark="edge"
+             rgb1="0.28 0.28 0.30" rgb2="0.20 0.20 0.22" markrgb="0.6 0.6 0.62"
+             width="300" height="300"/>
+    <material name="terrain_mat" texture="terrain_tex" texuniform="true"
+              texrepeat="40 40" reflectance="0.05"/>
+    <hfield name="terrain" nrow="572" ncol="357" size="8.9250 14.3000 0.3936 0.5"/>
+  </asset>
+
+  <worldbody>
+    <light pos="1.5 -1.5 3.5" dir="-0.35 0.35 -1" directional="true"/>
+    <!-- solref stiffened from MuJoCo's default 0.02 to 0.008 s. At the default, a
+         settled G1 sinks ~5 mm into the terrain, which is the same order as the
+         5 cm grid's real relief and would let a policy learn against contact
+         softness rather than geometry. 0.008 s is 4x the 0.002 s timestep, so the
+         constraint stays stable. Recorded here and in notes/pipeline.md. -->
+    <geom name="terrain" type="hfield" hfield="terrain" material="terrain_mat"
+          pos="0 0 0" friction="1 0.005 0.0001" condim="3"
+          solref="0.008 1" solimp="0.9 0.95 0.001"/>
+  </worldbody>
+
+  <!-- `stand` comes from g1.xml and is straight-legged: on real terrain the few
+       centimetres of reconstruction roughness under the feet topple it, because
+       the position actuators hold joint angles and nothing catches the floating
+       base. `crouch` is the settle pose for Phase 4 -- bent knees, lower CoM.
+       Joint order and the qpos/ctrl layout are documented in scene_g1_hfield.xml. -->
+  <keyframe>
+    <key name="crouch"
+         qpos="0 0 0.74 1 0 0 0
+               -0.4 0 0 0.8 -0.4 0
+               -0.4 0 0 0.8 -0.4 0
+               0 0 0
+               0.35 0.2 0 1.1 0 0 0
+               0.35 -0.2 0 1.1 0 0 0"
+         ctrl="-0.4 0 0 0.8 -0.4 0
+               -0.4 0 0 0.8 -0.4 0
+               0 0 0
+               0.35 0.2 0 1.1 0 0 0
+               0.35 -0.2 0 1.1 0 0 0"/>
+  </keyframe>
+</mujoco>

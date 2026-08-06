@@ -1,6 +1,6 @@
 ---
 title: Machine setup — RTX 4060 Ti + WSL2
-updated: 2026-08-03
+updated: 2026-08-06
 status: current
 ---
 
@@ -31,7 +31,8 @@ ships B550 boards that way, and no OS-side workaround exists on consumer Gigabyt
 | Offscreen rendering | ✅ **hardware EGL, first try** — no NVIDIA ICD file, no osmesa fallback |
 | JAX-CUDA | ✅ jax **0.9.2, pinned** (see below), `[CudaDevice(id=0)]` |
 | Playground + MJX | ✅ playground 0.2.0, brax 0.14.2, `G1JoystickFlatTerrain` loads |
-| Open3D (Phase 4) | ✅ 0.19.0 |
+| Open3D (Phase 4) | ✅ 0.19.0 (+ viser 1.0.30, for `recon/view_viser.py`) |
+| LingBot-Map (Phase 3) | ✅ own venv `~/venvs/lingbot`, torch 2.8.0+cu128 |
 | Phase 1 parity on Linux | ✅ all three scripts pass, MP4 renders |
 
 Reproduce from scratch with `scripts/setup_wsl_stage2.ps1` (Windows: distro + user) then
@@ -60,6 +61,86 @@ Two consequences worth knowing before debugging anything in WSL:
   `~/src/playground/mujoco_playground/external_deps/` on the *first* `registry.load()`. That
   is a one-time cost, already paid; a first training run on a fresh box will pay it again and
   can look like a hang.
+
+## LingBot-Map (Phase 3)
+
+Installed by `scripts/setup_lingbot.sh` into **its own venv, `~/venvs/lingbot`** — upstream
+pins torch 2.8.0/cu128 and `~/venvs/dome` holds the jax 0.9.2 pin brax needs, so one venv
+would force a CUDA-stack fight. Same reasoning as the dimos venv, see [[decisions]].
+
+- Source clone: `~/src/lingbot-map` (editable install, `[vis]` extras → viser 1.0.30)
+- Checkpoints: **both downloaded**, `~/ckpt/lingbot-map/` — `lingbot-map.pt` and
+  `lingbot-map-long.pt`, 4,632,303,465 bytes each, **1.16 B params, flat fp32 state dict** (no
+  optimizer state). They load into the *same* architecture with no missing keys, so switching is
+  just `--model_path`. Default to `-long` (see the `lingbot-recon` skill).
+- **Fetch checkpoints on the Windows side.** `huggingface_hub` inside WSL stalled at 196 KB and
+  never recovered — the documented ~1-in-5 HTTPS stall. `curl.exe` on Windows pulled the same
+  4.63 GB at ~12 MB/s in 6 minutes; then `cp` it into `~/ckpt/` over drvfs.
+- **Sky segmentation:** `~/ckpt/skyseg.onnx` (176 MB, from `JianyuanWang/skyseg` on HF, same
+  Windows-side `curl.exe` route). Needed by `reconstruct.py --mask_sky` for outdoor scenes;
+  `onnxruntime` 1.23.2 is already in the lingbot venv. It runs on **CPU on purpose** — the GPU
+  is at its ceiling from the aggregator, and 320×320 segmentation over a few hundred frames
+  costs seconds. Upstream only applies sky masking in its *viewer*, so our exported `.ply`
+  needed its own path.
+- **FlashInfer is deliberately not installed** — it is a long build and we pass `--use_sdpa`
+  anyway. Every run prints `flashinfer not available`; that line is expected, not a warning.
+
+> [!warning] The checkpoint does not fit the naive load path
+> Upstream's `load_model()` does `torch.load(map_location=device)`. That fails twice on this
+> box: 4.63 GB of checkpoint on an 8 GB card *plus* a second allocation when `model.to(device)`
+> runs, and 4.63 GB of checkpoint *plus* 4.63 GB of freshly built model in 7.7 GB of WSL RAM.
+> `recon/reconstruct.py` loads with `mmap=True` and casts the aggregator to bf16 **before** the
+> GPU transfer, which lands weights at **2.81 GB** resident.
+>
+> Confirmed empirically 2026-08-06: running upstream `demo.py` unmodified dies with
+> `RuntimeError: CUDA driver error: device not ready` in `load_model`. **Upstream's demo simply
+> cannot run on this box** — always go through `recon/reconstruct.py`, including when reproducing
+> upstream's own example scenes.
+
+> [!warning] Overshooting VRAM can take the whole WSL VM down
+> Exceeding VRAM under WSL does not reliably raise a clean torch OOM — it surfaced as
+> `CUDA driver error: device not ready`, and once killed the distro outright with
+> `Wsl/Service/E_UNEXPECTED` (recover with `wsl --shutdown`). `reconstruct.py` therefore sets
+> `torch.cuda.set_per_process_memory_fraction` (`--vram_fraction`, default 0.85) so the failure
+> is a catchable Python exception. Keep it.
+
+Working limits on this card at 518×294, measured (see [[experiments]]):
+
+| Knob | Ceiling | Why |
+| --- | --- | --- |
+| `--window_size` | **24 keyframes** (6.21 GB peak); 32 OOMs | dominant VRAM driver in windowed mode |
+| `--kv_cache_sliding_window` | **≤24** in streaming mode (6.55 GB peak); 32 OOMs | the cache *is* the model's memory horizon — see below |
+| sequence length | ~25 s of footage per consistent scene, either mode | drift, not memory — see below |
+| frame count | ~660 at 518×294 | predictions accumulate on CPU in fp32; `reconstruct.py` preflights this and aborts in seconds rather than being OOM-killed 20 min in |
+
+### Streaming mode works; its limit is drift, not memory
+
+Streaming runs a **bounded** KV cache of recent keyframes and slices frames to the GPU one at a
+time, so peak VRAM is flat regardless of sequence length — the whole 660-frame clip completed at
+**5.63 GB**. This is the property Phases 6–7 depend on: a live camera feed never has more than a
+frame in flight, which is how upstream claims stability past 10,000 frames.
+
+> [!warning] Leave `images` on the CPU in **both** modes
+> An early version of `recon/reconstruct.py` moved the whole tensor to the GPU for streaming, on
+> the false assumption that only windowed mode slices per iteration. Both do
+> (`gct_stream.py`: *"we slice-then-move per iteration so peak GPU memory is O(scale) or O(1)
+> frames rather than O(S)"*). The bug made streaming look unusable past ~100 frames when it in
+> fact handles the entire clip.
+
+What actually bounds a reconstruction is **drift**, and the KV cache size sets the memory
+horizon — anything older than the cache is forgotten. On this card the cache maxes at ~24
+keyframes ≈ 14 s of memory, and quality decays with clip length (`traj_length_over_extent`,
+≲3 healthy):
+
+| Clip length | streaming | windowed |
+| --- | --- | --- |
+| 25 s | **2.76** | **2.76** (identical output) |
+| 49 s | 11.8 | 9.7 |
+| 132 s | 34–46 | 31–38 |
+
+So both modes hit the same wall for the same reason, and neither is a workaround for the other.
+A larger GPU buys a larger cache and therefore a longer horizon — this is a concrete reason for
+the cloud-GPU line item in [[open-questions]], not just a training-throughput one.
 
 ## The robot: Menagerie `unitree_g1`, and only that
 
@@ -188,6 +269,9 @@ Note: `npx skills add` needed `http.sslBackend=schannel` (via `GIT_CONFIG_*` env
   `train_g1.py` (Phase 2 training, writes the [[experiments]] row),
   `make_full_collision_xml.py` + `check_full_collision.py` (full-body collision model and its
   gate), `render_policy.py` (trained policy → MP4)
+- `recon/` — Phase 3: `extract_frames.py` (video → tonemapped JPEG frames),
+  `reconstruct.py` (LingBot-Map → `cloud.ply` + `trajectory.npz` + `run.json`),
+  `inspect_cloud.py` (Open3D stats + offscreen renders), `view_viser.py` (browser viewer)
 - `terrain/` — `make_hfield.py` (numpy → `hfield_data`, `sample_height`), `drop_test.py` (contact gate)
 - `sim/` — `scene_g1_hfield.xml` (G1 + heightfield, no floor plane), `pose_and_render.py` (the demo)
 - `runs/` — per-run `config.json` + `progress.json` + checkpoints (gitignored)
