@@ -142,6 +142,27 @@ So both modes hit the same wall for the same reason, and neither is a workaround
 A larger GPU buys a larger cache and therefore a longer horizon — this is a concrete reason for
 the cloud-GPU line item in [[open-questions]], not just a training-throughput one.
 
+### The rented-GPU path: `colab/lingbot_map_colab.ipynb`
+
+Built 2026-08-06 to test that claim rather than assert it. It shells out to the same
+`recon/*.py` scripts, unmodified, so the only variable between it and a local run is the card —
+which is the only way its numbers mean anything. What it does: both upstream demo scenes at
+upstream's *exact* config, a `kv_cache_sliding_window` ladder from 16 to 128, heavy Open3D
+cleanup, and a printed compute-bound / not-compute verdict. `colab/README.md` has the how.
+
+Three things it needs that a local run does not:
+
+- **`LINGBOT_SRC`**, an env var `reconstruct.py` already reads, pointed at the Colab clone —
+  it imports upstream's `demo.py` before touching torch.
+- **`recon/` uploaded as a zip.** The GitHub remote is private, so the notebook tries Drive,
+  then a `GD_TOKEN` Colab Secret, then a `files.upload()` of `recon.zip` (~80 KB).
+- **`keyframe_interval` pinned to 1.** Upstream's auto is `(n+319)//320`; ours is
+  `ceil(n/240)`. They agree on loop's 237 frames and *disagree* on courthouse's 286, so
+  leaving it on auto would have silently changed the thing being measured.
+
+Watch for one thing on a T4: `reconstruct.py` picks bf16 only on sm_80+ and drops to fp16
+below it, so a Turing card changes the numeric path as well as the VRAM. Use A100 or L4.
+
 ## The robot: Menagerie `unitree_g1`, and only that
 
 > [!important] One source of robot geometry

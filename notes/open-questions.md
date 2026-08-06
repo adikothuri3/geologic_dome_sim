@@ -74,6 +74,8 @@ The consequence is not cosmetic: at kvsw 16 the courthouse poses scribble (`traj
 
 **Open:** where exactly the cliff is in cache-views-per-scene, and whether it is the *number* of cached views or their *temporal span* that matters — the `keyframe_interval 2` result hints at the former, which would make VRAM the only lever and settle the cloud-GPU question for Phase 7.
 
+**The instrument now exists:** `colab/lingbot_map_colab.ipynb` (see [[setup]]) runs the same `recon/` scripts on a rented A100/L4 — both demo scenes at upstream's exact config, plus a `kv_cache_sliding_window` ladder from 16 to 128 on courthouse. The rung that decides the open question is the pair **`kvsw 16 / kfi 2`** against **`kvsw 32 / kfi 1`**: same temporal span, half the cached views. If `(32, 1)` wins, VRAM is the whole lever; if they land together, the model wants horizon and no amount of VRAM fixes a trek-length walk. Not yet run.
+
 ## 8 GB VRAM ceiling
 
 LingBot-Map's KV cache and MJX's env count both eat VRAM ([[setup]] has the per-workload tactics). **Open:** whether Phase 5 per-iteration debugging genuinely fits locally, and the cloud-GPU budget/choice for sweeps and the expedition window.
