@@ -191,7 +191,7 @@ def sky_session(model_path: Path):
 
 
 def build_cloud(preds: dict, images: np.ndarray, conf_pct: float, pixel_stride: int,
-                skyseg=None, sky_threshold: float = 0.1):
+                skyseg=None, sky_threshold: float = 0.1, conf_abs: float | None = None):
     """Confidence-filtered coloured cloud, built one frame at a time.
 
     Streaming matters here: a 1320-frame clip at 518x518 would need ~4 GB just for
@@ -208,7 +208,8 @@ def build_cloud(preds: dict, images: np.ndarray, conf_pct: float, pixel_stride: 
 
     have_world = preds.get("world_points") is not None
     conf = preds["world_points_conf"] if have_world else preds["depth_conf"]
-    thr = conf_threshold_from_percentile(conf.astype(np.float32), conf_pct)
+    thr = (float(conf_abs) if conf_abs is not None
+           else conf_threshold_from_percentile(conf.astype(np.float32), conf_pct))
 
     n = conf.shape[0]
     content = padding_mask(images)
@@ -264,9 +265,25 @@ def main() -> int:
     ap.add_argument("--model_path", type=Path, required=True)
     ap.add_argument("--mode", choices=["streaming", "windowed"], default="windowed")
     ap.add_argument("--window_size", type=int, default=48)
+    # The paper's adaptive keyframe selection (arXiv 2604.14141 sec 4.4): predict pose
+    # and depth for each incoming frame, compute optical flow against the most recent
+    # keyframe, and promote the frame only once that flow exceeds a threshold. It
+    # takes precedence over --keyframe_interval. Upstream's own demo-video pipeline
+    # (demo_render/process_videos.sh) runs 25.0 px with a 100-frame cap; `demo.py`
+    # exposes it nowhere, which is why the README one-liner is a weaker configuration
+    # than the one behind their published clips.
+    #
+    # Windowed only: gct_stream.GCTStream (streaming/"Direct") does not implement it.
+    ap.add_argument("--flow_threshold", type=float, default=0.0,
+                    help="mean optical flow in px before a frame becomes a keyframe; "
+                         "0 disables (fixed --keyframe_interval instead). Windowed only")
+    ap.add_argument("--max_non_keyframe_gap", type=int, default=30,
+                    help="force a keyframe after this many skipped frames (flow mode only)")
     ap.add_argument("--overlap_keyframes", type=int, default=4,
                     help="keyframes shared between consecutive windows; upstream's "
-                         "preferred overlap control (overlap_size is the legacy path)")
+                         "preferred overlap control (overlap_size is the legacy path). "
+                         "Negative means 'unset', which is what upstream's own scripts "
+                         "pass and resolves to num_scale_frames inside the model")
     ap.add_argument("--keyframe_interval", type=int, default=None,
                     help="default: auto, to stay under the ~320-view RoPE limit")
     ap.add_argument("--num_scale_frames", type=int, default=4)
@@ -280,6 +297,13 @@ def main() -> int:
                          "upstream's default and centre-crops height to 518")
     ap.add_argument("--conf_percentile", type=float, default=55.0,
                     help="drop points below this percentile of world_points_conf")
+    # Upstream filters on an absolute confidence value, not a percentile: demo.py's
+    # viewer defaults to 1.5 and their demo-video renderer to 2.0. A percentile keeps
+    # a fixed *fraction* of every run, which is the right default for comparing our
+    # own runs to each other, and the wrong one for comparing a cloud to theirs.
+    ap.add_argument("--conf_threshold", type=float, default=None,
+                    help="absolute confidence cut, overriding --conf_percentile "
+                         "(upstream: 1.5 in demo.py's viewer, 2.0 in their renderer)")
     ap.add_argument("--mask_sky", action="store_true",
                     help="drop sky pixels from the exported cloud (outdoor scenes; "
                          "upstream uses this for example/courthouse and university)")
@@ -350,8 +374,22 @@ def main() -> int:
     # and the interval only sets temporal density -- ~0.6 s between keyframes at
     # our 10 fps sampling is dense enough for a walking-pace clip without paying
     # for windows we don't need.
+    # Flow-based selection replaces the fixed interval entirely, so the auto-interval
+    # arithmetic below would only produce a misleading number in the run record.
+    if a.flow_threshold > 0 and a.mode != "windowed":
+        raise SystemExit(
+            "--flow_threshold needs --mode windowed: adaptive keyframe selection lives "
+            "in gct_stream_window.GCTStream, and streaming ('Direct' in the paper) has "
+            "no implementation of it"
+        )
+
     kfi = a.keyframe_interval
-    if kfi is None:
+    if a.flow_threshold > 0:
+        kfi = 1 if kfi is None else kfi
+        print(f"flow-based keyframes: >{a.flow_threshold:.1f} px mean flow, "
+              f"forced every {a.max_non_keyframe_gap} frames "
+              f"(--keyframe_interval is ignored in this mode)")
+    elif kfi is None:
         if a.mode == "streaming":
             kfi = max(1, int(np.ceil(n_frames / (ROPE_VIEW_LIMIT * 0.75))))
             print(f"auto keyframe_interval={kfi} -> ~{n_frames // kfi} keyframes "
@@ -440,9 +478,12 @@ def main() -> int:
                 images,
                 window_size=a.window_size,
                 overlap_size=None,
-                overlap_keyframes=a.overlap_keyframes,
+                overlap_keyframes=(a.overlap_keyframes if a.overlap_keyframes >= 0
+                                   else None),
                 num_scale_frames=a.num_scale_frames,
                 keyframe_interval=kfi,
+                flow_threshold=a.flow_threshold,
+                max_non_keyframe_gap=a.max_non_keyframe_gap,
                 output_device=torch.device("cpu"),
             )
     infer_s = time.time() - t0
@@ -476,7 +517,7 @@ def main() -> int:
     skyseg = sky_session(a.skyseg_model) if a.mask_sky else None
     pts, cols, thr, n_pad, n_sky = build_cloud(
         vis, vis["images"], a.conf_percentile, a.pixel_stride,
-        skyseg=skyseg, sky_threshold=a.sky_threshold,
+        skyseg=skyseg, sky_threshold=a.sky_threshold, conf_abs=a.conf_threshold,
     )
     if n_sky:
         print(f"masked {n_sky:,} sky points "
@@ -488,7 +529,8 @@ def main() -> int:
     write_ply(ply_path, pts, cols)
     extent = (pts.max(0) - pts.min(0)) if len(pts) else np.zeros(3)
     print(f"cloud: {len(pts):,} points -> {ply_path}")
-    print(f"       conf threshold {thr:.3f} (p{a.conf_percentile:g}), "
+    print(f"       conf threshold {thr:.3f} "
+          f"({'absolute' if a.conf_threshold is not None else f'p{a.conf_percentile:g}'}), "
           f"extent {extent[0]:.2f} x {extent[1]:.2f} x {extent[2]:.2f} (arbitrary scale)")
 
     # ── Export trajectory ────────────────────────────────────────────────────
@@ -518,6 +560,19 @@ def main() -> int:
         print(f"windows stitched: {n_chunks}, per-window scale "
               f"min {cs.min():.3f} max {cs.max():.3f} (span {scale_span:.1f}x)")
 
+    kf_mask = vis.get("is_keyframe")
+    if kf_mask is not None:
+        n_keyframes = int(np.asarray(kf_mask).astype(bool).sum())
+        print(f"keyframes selected: {n_keyframes}/{n_frames} "
+              f"({100*n_keyframes/max(n_frames,1):.0f}%)"
+              + ("  -- every frame cleared the flow threshold; the input is sampled "
+                 "more sparsely than the keyframe policy targets"
+                 if n_keyframes == n_frames and a.flow_threshold > 0 else ""))
+    elif a.flow_threshold > 0:
+        n_keyframes = None
+    else:
+        n_keyframes = int(n_frames // kfi)
+
     seg = np.linalg.norm(np.diff(cam_centers, axis=0), axis=1)
     print(f"trajectory: {len(cam_centers)} poses -> {traj_path}")
     print(f"            path length {seg.sum():.2f} (arbitrary units), "
@@ -529,9 +584,18 @@ def main() -> int:
         "n_frames": int(n_frames),
         "mode": a.mode,
         "window_size": a.window_size,
-        "overlap_keyframes": a.overlap_keyframes,
+        "overlap_keyframes": a.overlap_keyframes if a.overlap_keyframes >= 0 else None,
         "keyframe_interval": int(kfi),
-        "n_keyframes": int(n_frames // kfi),
+        # Under flow selection the model decides this per frame, so a count derived
+        # from the interval would be fiction. It returns an `is_keyframe` mask, and
+        # the *fraction* selected is the diagnostic: at 100% every frame cleared the
+        # flow threshold, which means the footage is sampled more sparsely than
+        # upstream's own keyframe spacing and there is no dense tracking in between.
+        "n_keyframes": n_keyframes,
+        "keyframe_frac": (None if n_keyframes is None
+                          else round(n_keyframes / max(n_frames, 1), 3)),
+        "flow_threshold": a.flow_threshold,
+        "max_non_keyframe_gap": a.max_non_keyframe_gap if a.flow_threshold > 0 else None,
         "num_scale_frames": a.num_scale_frames,
         "kv_cache_sliding_window": a.kv_cache_sliding_window,
         "image_size": a.image_size,
@@ -541,8 +605,9 @@ def main() -> int:
         "inference_s": round(infer_s, 1),
         "fps": round(n_frames / infer_s, 3),
         "peak_vram_gb": round(peak_gb, 2),
-        "conf_percentile": a.conf_percentile,
+        "conf_percentile": None if a.conf_threshold is not None else a.conf_percentile,
         "conf_threshold": round(thr, 4),
+        "conf_mode": "absolute" if a.conf_threshold is not None else "percentile",
         "pixel_stride": a.pixel_stride,
         "preprocess_mode": a.preprocess_mode,
         "padding_px_masked": int(n_pad),

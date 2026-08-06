@@ -70,11 +70,29 @@ Reconstruction noise becomes "features" the policy exploits. Mitigation is terra
 
 `demo.py` defaults to `kv_cache_sliding_window=64` with `keyframe_interval=1` for anything under the 320-view RoPE limit, and that is the config behind every published LingBot-Map demo. **We cannot run it.** Measured Aug 6 on `example/courthouse` (286 frames): kvsw 64 OOMs, 48 OOMs, 24 OOMs at frame 240/286, and only 16 completes. Halving the sequence to 143 frames with `--stride 2` did *not* buy a bigger cache — **kvsw ≈ 24 is a hard ceiling set by cache size, not sequence length**. `lingbot-map-long` is bigger still and cannot run 286 frames at all.
 
-The consequence is not cosmetic: at kvsw 16 the courthouse poses scribble (`traj_length_over_extent` **24.9** against loop's 3.36) while per-frame geometry stays excellent. Doubling the horizon via `keyframe_interval 2` moved it to 25.1 — nothing. So this is a cliff, not a gradient: either the scene fits the cache or global consistency collapses. Upstream's own courthouse result is reproducible only on a bigger card.
+The consequence is not cosmetic: at kvsw 16 the courthouse poses scribble (`traj_length_over_extent` **24.9** against loop's 3.36) while per-frame geometry stays excellent.
+
+> [!warning] The cache hypothesis was wrong — tested and killed 2026-08-06
+> This note used to conclude "upstream's own courthouse result is reproducible only on a bigger
+> card." That was inference, not measurement, and an A100 80 GB falsified it. Sweeping
+> `kv_cache_sliding_window` over **16 → 128** on courthouse moved the ratio from 24.84 to 25.59 —
+> **8× the cache, 3% change, in the wrong direction.** The discriminator pair (`kvsw 16 / kfi 2`
+> = 25.19 against `kvsw 32 / kfi 1` = 25.17) came back null too, so it is neither the number of
+> cached views nor their temporal span. Controls confirm the comparison: kvsw 16 on the A100 gives
+> 24.84 against 24.88 locally, and loop gives 3.37 against 3.36.
+>
+> **The real cause is frame spacing.** Consecutive frames in `example/courthouse` are ~47 px apart
+> (phase correlation at 518 px width); loop's are ~2 px. Upstream's own demo pipeline targets
+> **25 px between keyframes** with every intermediate frame densely tracked, so courthouse's
+> shipped frames are already ~2× past their *keyframe* spacing with nothing in between.
+> `example/courthouse` is a decimated teaser, not the sequence behind their published video —
+> see the two-pipelines section in [[pipeline]].
+
+The 8 GB ceiling on `kv_cache_sliding_window` is still real and still bounds what runs locally. What is *not* established is that lifting it buys quality — the one direct test of that failed, so the same "bigger cache, longer horizon" reasoning applied to the ~25 s clip limit below is now also unsupported and needs its own run.
 
 **Open:** where exactly the cliff is in cache-views-per-scene, and whether it is the *number* of cached views or their *temporal span* that matters — the `keyframe_interval 2` result hints at the former, which would make VRAM the only lever and settle the cloud-GPU question for Phase 7.
 
-**The instrument now exists:** `colab/lingbot_map_colab.ipynb` (see [[setup]]) runs the same `recon/` scripts on a rented A100/L4 — both demo scenes at upstream's exact config, plus a `kv_cache_sliding_window` ladder from 16 to 128 on courthouse. The rung that decides the open question is the pair **`kvsw 16 / kfi 2`** against **`kvsw 32 / kfi 1`**: same temporal span, half the cached views. If `(32, 1)` wins, VRAM is the whole lever; if they land together, the model wants horizon and no amount of VRAM fixes a trek-length walk. Not yet run.
+**Answered 2026-08-06** by `colab/lingbot_map_colab.ipynb` on an A100 80 GB — see the warning above. Neither quantity is the lever. What remains genuinely open is whether a bigger cache helps on footage that is *inside* the model's sampling regime, which courthouse never was; the room-map clip at 49 s and 132 s is the honest test and has not been run on a big card.
 
 ## 8 GB VRAM ceiling
 

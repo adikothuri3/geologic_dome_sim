@@ -41,6 +41,38 @@ Our wrapper lives in `recon/` (see [[setup]] for the install and this box's meas
 
 Links: paper arXiv 2604.14141 · official Robbyant repo (`batch_demo.py`, viser demo) · MarkTechPost hands-on tutorial (July 2026)
 
+#### Upstream ships two inference pipelines, and the README shows the weaker one
+
+Established 2026-08-06 by reading the paper against the repo. `demo.py` — the README's one-liner —
+is **not** what produced their published demo videos. Those came from `demo_render/batch_demo.py`,
+driven by `demo_render/process_videos.sh`.
+
+| | **Direct** (`demo.py`) | **VO** (`batch_demo.py`) |
+| --- | --- | --- |
+| paper | §4.5, the config behind every benchmark number | §4.4, *"for the large-scale demo videos … we use VO mode"* |
+| `--mode` | `streaming` | `windowed` |
+| pose-reference window | k = 64 | k = 64, `window_size` 64 keyframes |
+| keyframes | fixed interval, m = 1 | **adaptive optical flow**: 25.0 px, forced every 100 |
+| their input | the `example/` folders | the source video, `TARGET_FRAMES=4000`, `IMAGE_STRIDE=1` |
+
+The keyframe mechanism (§4.4) predicts pose and depth per incoming frame, measures optical flow
+against the most recent keyframe, and promotes the frame only once that flow clears a threshold —
+this is what bounds cache growth on long sequences. **`demo.py` exposes it nowhere**, and
+`gct_stream.py` (Direct) does not implement it at all; it lives only in `gct_stream_window.py`.
+Every windowed run logged in [[experiments]] before Aug 6 therefore used fixed intervals.
+
+`recon/reconstruct.py` now takes `--flow_threshold` and `--max_non_keyframe_gap` (windowed only,
+enforced) plus `--conf_threshold` for upstream's absolute confidence cut instead of our percentile.
+The run record gains **`keyframe_frac`**, read from the model's `is_keyframe` mask — the diagnostic
+that matters: at 100% every frame cleared the threshold, meaning the footage is sampled more
+sparsely than the keyframe policy targets and nothing is densely tracked in between. That is the
+state `example/courthouse` is in, and it is a property of the frames, not of any config
+([[open-questions]]).
+
+VO's cost is stated plainly in the paper: it fuses windows by Sim(3) alignment over their overlap
+and *"incurs extra alignment error that compounds with the number of windows"*. Direct is more
+accurate whenever the sequence fits inside ~3,000 frames.
+
 ### DimensionalOS (DimOS)
 
 Open-source, Python-first "agentic operating system" for robots — the framework the expedition actually runs. Modules (perception, SLAM, planners, motor control) communicate over typed pub/sub channels (`In[T]`/`Out[T]`); LLM agents are first-class modules; no ROS. Unitree support ships in the box: `uv pip install 'dimos[base,unitree]'`.
