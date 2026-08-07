@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Linux-side toolchain for the whole pipeline. Run inside WSL.
+# Linux-side toolchain for the legacy MuJoCo track (+ recon/DimOS deps). Run inside WSL.
 #
-#     bash scripts/setup_wsl.sh --all
-#     bash scripts/setup_wsl.sh --base --phase2      # just what Phase 2 needs
+#     bash sims/mujoco/scripts/setup_wsl.sh --all
+#     bash sims/mujoco/scripts/setup_wsl.sh --base --phase2      # just what Phase 2 needs
 #
 # Stages:
 #   --base    apt libs, uv, venv, MuJoCo, Menagerie, offscreen-render probe   (Phase 1 parity)
@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"   # repo root (script lives in sims/mujoco/scripts/)
 VENV="$HOME/venvs/dome"
 DIMOS_VENV="$HOME/venvs/dimos"
 SRC="$HOME/src"
@@ -125,14 +125,15 @@ if [[ $DO_BASE -eq 1 ]]; then
   fi
   ls "$MENAGERIE/unitree_g1/g1.xml" >/dev/null
 
-  # sim/scene_g1_hfield.xml includes menagerie/unitree_g1/g1.xml relative to itself.
-  if [[ ! -e "$REPO/sim/menagerie/unitree_g1/g1.xml" ]]; then
-    rm -rf "$REPO/sim/menagerie"
-    ln -sfn "$MENAGERIE" "$REPO/sim/menagerie" 2>/dev/null || true
-    if [[ ! -e "$REPO/sim/menagerie/unitree_g1/g1.xml" ]]; then
+  # sims/mujoco/xmls/scene_g1_hfield.xml includes menagerie/unitree_g1/g1.xml relative to itself.
+  MJ_MENAGERIE="$REPO/sims/mujoco/xmls/menagerie"
+  if [[ ! -e "$MJ_MENAGERIE/unitree_g1/g1.xml" ]]; then
+    rm -rf "$MJ_MENAGERIE"
+    ln -sfn "$MENAGERIE" "$MJ_MENAGERIE" 2>/dev/null || true
+    if [[ ! -e "$MJ_MENAGERIE/unitree_g1/g1.xml" ]]; then
       warn 'symlink unavailable on this filesystem; copying instead'
-      rm -rf "$REPO/sim/menagerie"; mkdir -p "$REPO/sim/menagerie"
-      cp -r "$MENAGERIE/unitree_g1" "$REPO/sim/menagerie/"
+      rm -rf "$MJ_MENAGERIE"; mkdir -p "$MJ_MENAGERIE"
+      cp -r "$MENAGERIE/unitree_g1" "$MJ_MENAGERIE/"
     fi
   fi
   echo "menagerie ok"
@@ -144,7 +145,7 @@ if [[ $DO_BASE -eq 1 ]]; then
   render_ok=0
   for backend in egl osmesa; do
     echo "--- trying MUJOCO_GL=$backend"
-    if MUJOCO_GL="$backend" python "$REPO/scripts/check_render.py"; then
+    if MUJOCO_GL="$backend" python "$REPO/sims/mujoco/scripts/check_render.py"; then
       sed -i "s/^export MUJOCO_GL=.*/export MUJOCO_GL=$backend/" "$HOME/.bashrc"
       echo "rendering works with MUJOCO_GL=$backend"
       render_ok=1; break
@@ -154,7 +155,7 @@ if [[ $DO_BASE -eq 1 ]]; then
       sudo mkdir -p /usr/share/glvnd/egl_vendor.d
       echo '{"file_format_version":"1.0.0","ICD":{"library_path":"libEGL_nvidia.so.0"}}' \
         | sudo tee /usr/share/glvnd/egl_vendor.d/10_nvidia.json >/dev/null
-      if MUJOCO_GL=egl python "$REPO/scripts/check_render.py"; then
+      if MUJOCO_GL=egl python "$REPO/sims/mujoco/scripts/check_render.py"; then
         sed -i 's/^export MUJOCO_GL=.*/export MUJOCO_GL=egl/' "$HOME/.bashrc"
         echo 'rendering works with MUJOCO_GL=egl (after ICD fix)'
         render_ok=1; break
@@ -178,7 +179,7 @@ if [[ $DO_P2 -eq 1 ]]; then
   # `AttributeError: jax.device_put_replicated is deprecated`. brax declares only
   # `jax>=0.4.6`, so nothing upstream prevents this.
   # 0.9.2 is the last release with the API. Revisit when brax ships a fix; verify with
-  # scripts/train_g1.py --smoke before unpinning.
+  # sims/mujoco/scripts/train_g1.py --smoke before unpinning.
   retry uv pip install "jax[cuda12]==0.9.2"
   python - <<'PY'
 import jax
@@ -196,7 +197,7 @@ PY
   retry uv pip install mujoco-mjx
 
   step 'phase2: verify the G1 joystick env loads'
-  python "$REPO/scripts/check_phase2.py"
+  python "$REPO/sims/mujoco/scripts/check_phase2.py"
 fi
 
 # --------------------------------------------------------------- phase4 --
@@ -241,12 +242,12 @@ cat <<EOF
 Environment ready. From $REPO with the venv active:
 
   Phase 1 (should still pass here):
-    python scripts/inspect_model.py
-    python terrain/drop_test.py
-    python sim/pose_and_render.py
+    python sims/mujoco/scripts/inspect_model.py
+    python sims/mujoco/terrain/drop_test.py
+    python sims/mujoco/scripts/pose_and_render.py
 
   Phase 2:
-    python scripts/check_phase2.py          # jax GPU + G1 env smoke test
-    python scripts/train_g1.py --smoke      # ~2 min, proves the training loop runs
-    python scripts/train_g1.py              # the real baseline run
+    python sims/mujoco/scripts/check_phase2.py          # jax GPU + G1 env smoke test
+    python sims/mujoco/scripts/train_g1.py --smoke      # ~2 min, proves the training loop runs
+    python sims/mujoco/scripts/train_g1.py              # the real baseline run
 EOF

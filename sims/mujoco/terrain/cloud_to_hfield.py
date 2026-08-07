@@ -25,8 +25,8 @@ look like rather than by the skill text:
 
 The heightfield is written as a `.npy` (normalized [0, 1], `grid[iy, ix]`, row 0
 at the -y edge) to be loaded straight into `model.hfield_data`, matching the
-convention `terrain/make_hfield.py` established and `terrain/drop_test.py`
-validates empirically.
+convention `sims/mujoco/terrain/make_hfield.py` established and
+`sims/mujoco/terrain/drop_test.py` validates empirically.
 """
 
 from __future__ import annotations
@@ -229,7 +229,7 @@ def main() -> int:
     hf = f'<hfield name="{name}" nrow="{nrow}" ncol="{ncol}" ' \
          f'size="{rx:.4f} {ry:.4f} {relief:.4f} {a.base_z}"/>'
 
-    out_dir = Path("terrain/assets")
+    out_dir = Path(__file__).resolve().parent / "assets"
     out_dir.mkdir(parents=True, exist_ok=True)
     np.save(out_dir / f"{name}.npy", norm.astype(np.float64))
     (out_dir / f"{name}.json").write_text(json.dumps({

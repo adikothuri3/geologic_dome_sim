@@ -3,8 +3,9 @@ notes/.obsidian/workspace-mobile.json
 __pycache__/
 .venv/
 
-# Symlink/junction to the Menagerie clone (created by install step A4)
-sim/menagerie
+# Symlink/junction to the Menagerie clone (created by sims/mujoco/scripts/setup_wsl.sh --base,
+# or by hand on Windows: New-Item -ItemType Junction)
+sims/mujoco/xmls/menagerie
 
 # Training run outputs: checkpoints and progress logs. The distilled result of every run
 # lives in notes/experiments.md, which IS tracked.

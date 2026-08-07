@@ -2,13 +2,13 @@
   <!-- Phase 1 scene. Includes Menagerie's g1.xml directly rather than its scene.xml, so
        that the flat floor plane is NOT present and the robot contacts terrain instead.
 
-       `menagerie` points at the Menagerie clone (install step A4):
-           Linux:   ln -s ~/src/menagerie sim/menagerie
-           Windows: New-Item -ItemType Junction -Path sim\menagerie `
+       `menagerie` points at the Menagerie clone:
+           Linux:   ln -s ~/src/menagerie sims/mujoco/xmls/menagerie
+           Windows: New-Item -ItemType Junction -Path sims\mujoco\xmls\menagerie `
                       -Target C:\Users\Aditya\src\menagerie
 
        The <hfield> is declared empty here; elevation data is generated in numpy and
-       written into model.hfield_data at load time by terrain/make_hfield.py.
+       written into model.hfield_data at load time by sims/mujoco/terrain/make_hfield.py.
 
        Relief is 15 cm over a 6 m field (max slope ~10 deg over a foot-length baseline).
        The robot survives that only because make_hfield.py flattens a pad at the origin:
@@ -18,7 +18,7 @@
   <include file="menagerie/unitree_g1/g1.xml"/>
 
   <!-- g1.xml declares meshdir="assets", which MuJoCo resolves relative to the TOP-LEVEL
-       scene file (sim/), not relative to g1.xml. Menagerie's own scene.xml never hits this
+       scene file (xmls/), not relative to g1.xml. Menagerie's own scene.xml never hits this
        because it sits beside g1.xml and assets/.
        This <compiler> MUST come after the <include>: MJCF applies elements in order, so
        placing it first lets g1.xml's own meshdir override ours and the meshes go missing. -->

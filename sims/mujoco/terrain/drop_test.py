@@ -6,7 +6,7 @@ rehearsed here on synthetic terrain so the Phase 4 muscle already exists.
 Runs standalone against a minimal hfield-only scene -- no robot, no meshes -- so a
 terrain failure can never be confused with a robot failure.
 
-    python terrain/drop_test.py
+    python sims/mujoco/terrain/drop_test.py
 
 Drop points are deliberately asymmetric: a row/col swap or a flipped row order would
 show up as a mismatch between the predicted and actual resting height.
@@ -30,7 +30,7 @@ from terrain.make_hfield import (  # noqa: E402
     fill_hfield, fill_hfield_from_asset, load_asset, sample_height,
 )
 
-# Must mirror the <hfield> line in sim/scene_g1_hfield.xml.
+# Must mirror the <hfield> line in sims/mujoco/xmls/scene_g1_hfield.xml.
 HFIELD_ATTRS = 'nrow="128" ncol="128" size="3 3 0.15 0.1"'
 BOX_HALF = 0.08
 AT_REST_SPEED = 5e-3

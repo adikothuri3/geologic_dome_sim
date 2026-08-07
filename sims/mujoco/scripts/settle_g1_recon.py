@@ -3,7 +3,7 @@
 `.claude/skills/mjcf-terrain` requires this before the terrain is handed to
 training: load the G1 from Menagerie, place it above the terrain, let it settle
 under gravity, and confirm no penetration and no explosion.
-`terrain/drop_test.py --asset ...` covers the terrain in isolation with a rigid
+`sims/mujoco/terrain/drop_test.py --asset ...` covers the terrain in isolation with a rigid
 box; this covers the 30-body articulated robot that actually has to stand on it.
 
 Spawn placement is not arbitrary. The G1's `stand` keyframe is straight-legged
@@ -12,7 +12,7 @@ flattest *observed* patch of terrain -- the same reasoning behind
 `make_hfield.FLAT_PAD_FRAC`, except here we find a genuinely flat real spot
 rather than manufacturing one.
 
-    python scripts/settle_g1_recon.py --asset loop_office --render
+    python sims/mujoco/scripts/settle_g1_recon.py --asset loop_office --render
 """
 
 from __future__ import annotations
@@ -25,13 +25,14 @@ import mujoco
 import numpy as np
 from scipy import ndimage
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from terrain.make_hfield import (  # noqa: E402
     fill_hfield_from_asset, load_asset, sample_height,
 )
 
-REPO = pathlib.Path(__file__).resolve().parent.parent
-SCENE = REPO / "sim" / "scene_g1_recon.xml"
+MJ = pathlib.Path(__file__).resolve().parents[1]     # sims/mujoco/
+REPO = pathlib.Path(__file__).resolve().parents[3]   # repo root
+SCENE = MJ / "xmls" / "scene_g1_recon.xml"
 
 SETTLE_S = 4.0
 SIM_DT = 0.002
@@ -116,7 +117,7 @@ def main() -> int:
     grid = fill_hfield_from_asset(model, a.asset)
     _, meta = load_asset(a.asset)
 
-    obs_path = REPO / "terrain" / "assets" / f"{a.asset}_observed.npy"
+    obs_path = MJ / "terrain" / "assets" / f"{a.asset}_observed.npy"
     observed = np.load(obs_path) if obs_path.exists() else None
 
     x, y, rough, on_observed = flattest_observed(model, grid, observed)

@@ -4,9 +4,9 @@
        <compiler> must follow the <include>, and why Menagerie's scene.xml is not used).
 
        The <hfield> dimensions here are NOT free: they must match whatever
-       recon/cloud_to_hfield.py emitted, because terrain/make_hfield.py writes the
-       asset straight into model.hfield_data and refuses a shape mismatch. The line
-       below is copied verbatim from terrain/assets/loop_office.json's `hfield_xml`.
+       sims/mujoco/terrain/cloud_to_hfield.py emitted, because make_hfield.py writes the
+       asset straight into model.hfield_data and refuses a shape mismatch. The line below
+       is copied verbatim from sims/mujoco/terrain/assets/loop_office.json's `hfield_xml`.
 
        Provenance of these numbers: upstream LingBot-Map `example/loop`, an office
        walkthrough, scaled 2.4938 m/unit against a 1.5 m camera height, cleaned and
@@ -16,7 +16,7 @@
        Two honest limitations:
        * Only 11% of the field is observed ground. Unobserved cells sit at floor level
          rather than being interpolated, so they are flat and walkable instead of
-         invented walls. terrain/assets/loop_office_observed.npy is the mask; keep the
+         invented walls. sims/mujoco/terrain/assets/loop_office_observed.npy is the mask; keep the
          robot on observed ground when the distinction matters.
        * `ground` mode deliberately drops walls and furniture, because max-z turns
          every cubicle partition into a 2 m spire and the heightfield becomes a canyon.

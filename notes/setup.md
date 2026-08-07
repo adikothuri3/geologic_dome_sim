@@ -1,6 +1,6 @@
 ---
 title: Machine setup — RTX 4060 Ti + WSL2
-updated: 2026-08-06
+updated: 2026-08-07
 status: current
 ---
 
@@ -35,8 +35,8 @@ ships B550 boards that way, and no OS-side workaround exists on consumer Gigabyt
 | LingBot-Map (Phase 3) | ✅ own venv `~/venvs/lingbot`, torch 2.8.0+cu128 |
 | Phase 1 parity on Linux | ✅ all three scripts pass, MP4 renders |
 
-Reproduce from scratch with `scripts/setup_wsl_stage2.ps1` (Windows: distro + user) then
-`scripts/setup_wsl.sh --all` (Linux toolchain). Stage 2 installs Ubuntu with `--no-launch`,
+Reproduce from scratch with `sims/mujoco/scripts/setup_wsl_stage2.ps1` (Windows: distro + user)
+then `sims/mujoco/scripts/setup_wsl.sh --all` (Linux toolchain). Stage 2 installs Ubuntu with `--no-launch`,
 because the normal first run opens an interactive console asking for a username and would
 hang an unattended script.
 
@@ -51,7 +51,7 @@ hang an unattended script.
 > brax 0.14.2 (newest, and what Playground requires) still calls `jax.device_put_replicated`,
 > which jax **removed in 0.10.0**. Unpinning resolves to 0.11.0 and every PPO run dies at
 > startup with `AttributeError`. See [[decisions]]; unpin only when brax ships a fix, and
-> re-verify with `python scripts/train_g1.py --smoke`.
+> re-verify with `python sims/mujoco/scripts/train_g1.py --smoke`.
 
 Two consequences worth knowing before debugging anything in WSL:
 
@@ -64,7 +64,7 @@ Two consequences worth knowing before debugging anything in WSL:
 
 ## LingBot-Map (Phase 3)
 
-Installed by `scripts/setup_lingbot.sh` into **its own venv, `~/venvs/lingbot`** — upstream
+Installed by `recon/setup_lingbot.sh` into **its own venv, `~/venvs/lingbot`** — upstream
 pins torch 2.8.0/cu128 and `~/venvs/dome` holds the jax 0.9.2 pin brax needs, so one venv
 would force a CUDA-stack fight. Same reasoning as the dimos venv, see [[decisions]].
 
@@ -173,15 +173,15 @@ below it, so a Turing card changes the numeric path as well as the VRAM. Use A10
 > same machine; Playground only adds MJX-friendly collision primitives, sensors and actuators.
 > See [[decisions]].
 
-Our own layers, all in `sim/`, all generated rather than hand-drawn:
+Our own layers, all in `sims/mujoco/xmls/`, all generated rather than hand-drawn:
 
 | File | Made by | What it is |
 | --- | --- | --- |
 | `scene_g1_hfield.xml` | hand, Phase 1 | G1 on a numpy heightfield, no floor plane |
-| `g1_full_collision.xml` | `scripts/make_full_collision_xml.py` | every link collidable; each box sized from that body's Menagerie mesh |
+| `g1_full_collision.xml` | `sims/mujoco/scripts/make_full_collision_xml.py` | every link collidable; each box sized from that body's Menagerie mesh |
 | `scene_g1_full_collision.xml` | hand | the flat-terrain scene, including the above instead of the feet-only body |
 
-Gate the generated model with `python scripts/check_full_collision.py` before training on it:
+Gate the generated model with `python sims/mujoco/scripts/check_full_collision.py` before training on it:
 it asserts the environment contract survives, that nothing self-collides at the nominal pose,
 that only the feet touch the ground when settled, and that a toppled robot is actually caught
 by the new geometry.
@@ -193,14 +193,15 @@ is CPU and Windows renders through WGL with `MUJOCO_GL` unset (see [[decisions]]
 it needs no hypervisor, it is the fallback if WSL breaks, and its Menagerie clone is what
 seeds the Linux one. Phase 1 now passes identically on both.
 
-- **`.venv`** at the repo root: `mujoco 3.11.0`, `numpy 2.5.1`, `imageio`, `imageio-ffmpeg`
+- The old repo-root `.venv` (Phase-1-only: mujoco + numpy + imageio) was **deleted 2026-08-07**
+  — everything MuJoCo now runs in WSL's `~/venvs/dome`; recreate a Windows venv only if needed
 - **Menagerie** sparse-cloned to `C:\Users\Aditya\src\menagerie` (`unitree_g1` only), exposed
-  to the scene as the `sim/menagerie` junction
+  to the scene as the `sims/mujoco/xmls/menagerie` junction
 - Video is written via `imageio` + `imageio-ffmpeg`, **not** `mediapy` — mediapy shells out to
   a system ffmpeg that Windows does not have; imageio bundles its own binary and is identical
   on both OSes
 
-## The Linux toolchain (`scripts/setup_wsl.sh`)
+## The Linux toolchain (`sims/mujoco/scripts/setup_wsl.sh`)
 
 JAX-CUDA does not run natively on Windows and DimOS targets Linux, so everything from
 Phase 2 on lives in WSL. Stages are selectable and later ones are non-fatal — a DimOS
@@ -232,7 +233,7 @@ proceeds with a fragmented pool. So `check_phase2.py` and `train_g1.py` both set
 demand instead. JAX then reports `vram 6.0 GiB`.
 
 Playground's G1 defaults to **8192 parallel envs**, which will OOM.
-`scripts/train_g1.py` caps it at 2048 per the `training-run` skill and preserves brax's
+`sims/mujoco/scripts/train_g1.py` caps it at 2048 per the `training-run` skill and preserves brax's
 `batch_size × num_minibatches == num_envs` relation (upstream `256 × 32 = 8192`) by holding
 `num_minibatches = 32` and deriving `batch_size` — so gradient maths is unchanged and only
 parallelism shrinks. Watch `nvidia-smi` in the first minutes; at the wall drop to 1024 envs
@@ -267,10 +268,10 @@ first, cloud second. Closing VS Code buys back most of a gigabyte.
 
 `obsidian-markdown` (from kepano/obsidian-skills) keeps vault notes valid Obsidian-flavored markdown. The rest of that bundle (`obsidian-cli`, `obsidian-bases`, `json-canvas`, `defuddle`) was removed as unused — reinstall from the same repo if ever needed.
 
-**Third-party skills** (from the skills.sh registry, reviewed before install):
-
-- `mujoco` (coolbeevip/mujoco-skills) — MJCF scene building + robot-control/viewer workflows with helper scripts; useful for Phase 1 fluency and scene debugging. Installed to `.agents/skills/mujoco` (junction at `.claude/skills/mujoco`); security scans clean (Gen/Socket/Snyk).
-- Rejected: `letta-ai@tune-mjcf` (deleted upstream since registry indexing — nothing to install), `plurigrid@urdf2mjcf` (thin content, security warning, URDF conversion not on our path — Menagerie ships `unitree_g1` as MJCF), `onnx-converter` (auto-generated boilerplate). Nothing relevant found for open3d / point-cloud.
+**Third-party skills:** the vendored `mujoco` skill (coolbeevip/mujoco-skills) was **removed
+2026-08-07** — robot-arm oriented, referenced by nothing here, and its `.claude/skills/mujoco`
+junction was a standing Windows/WSL git hazard. Previously rejected from the registry:
+`letta-ai@tune-mjcf`, `plurigrid@urdf2mjcf`, `onnx-converter`.
 
 **Subagents** in `.claude/agents/` (added 2026-08-01, one page each — delegation targets for the main agent):
 
@@ -281,19 +282,23 @@ first, cloud second. Closing VS Code buys back most of a gigabyte.
 
 Note: `npx skills add` needed `http.sslBackend=schannel` (via `GIT_CONFIG_*` env vars, not persisted) — the global git config pins `openssl` + Git's CA bundle, which fails TLS verification against GitHub on this box.
 
-## Repo layout
+## Repo layout (restructured 2026-08-07)
 
 - `notes/` — this Obsidian vault (documentation only)
 - `lab-notebook/` — weekly markdown lab notebook, outside the vault
-- `scripts/` — `setup_wsl_stage2.ps1` (Windows: distro + user), `setup_wsl.sh` (Linux env),
-  `check_render.py` (GL gate), `inspect_model.py`, `check_phase2.py` (JAX GPU + G1 env),
-  `train_g1.py` (Phase 2 training, writes the [[experiments]] row),
-  `make_full_collision_xml.py` + `check_full_collision.py` (full-body collision model and its
-  gate), `render_policy.py` (trained policy → MP4)
-- `recon/` — Phase 3: `extract_frames.py` (video → tonemapped JPEG frames),
-  `reconstruct.py` (LingBot-Map → `cloud.ply` + `trajectory.npz` + `run.json`),
-  `inspect_cloud.py` (Open3D stats + offscreen renders), `view_viser.py` (browser viewer)
-- `terrain/` — `make_hfield.py` (numpy → `hfield_data`, `sample_height`), `drop_test.py` (contact gate)
-- `sim/` — `scene_g1_hfield.xml` (G1 + heightfield, no floor plane), `pose_and_render.py` (the demo)
-- `runs/` — per-run `config.json` + `progress.json` + checkpoints (gitignored)
-- `.venv/`, `sim/menagerie`, `runs/`, `*.mp4` are gitignored
+- `recon/` — **sim-agnostic** Phase 3 toolchain: `extract_frames.py`, `fetch_grandtour.py`,
+  `measure_flow.py`, `reconstruct.py` (LingBot-Map → `cloud.ply` + `trajectory.npz` + `run.json`),
+  `eval_ate.py`, `calibrate_scale.py`, `clean_cloud.py`, `inspect_cloud.py`, `view_viser.py`,
+  `setup_lingbot.sh`. Its output seam is a clean, metric, ground-aligned cloud
+  (`cloud_clean.ply` + `scale.json`); everything downstream is per-sim.
+- `sims/isaac/` — **primary sim track** (Isaac Sim / Isaac Lab): setup script, task and
+  terrain-import scaffolding. See `sims/isaac/README.md`.
+- `sims/mujoco/` — **legacy MuJoCo/MJX track**, kept runnable: `scripts/` (training, gates,
+  installers), `terrain/` (`make_hfield.py`, `drop_test.py`, `cloud_to_hfield.py`, `assets/`),
+  `xmls/` (MJCF scenes + `menagerie` junction). See `sims/mujoco/README.md`.
+- `colab/` — rented-GPU LingBot-Map notebook (`recon/` scripts baked in by `embed_recon.py`)
+- `reports/` — rendered evidence (contact sheets, gate renders, demo videos)
+- `runs/` — gitignored run outputs: `runs/recon/` (reconstructions), `runs/mujoco/`
+  (legacy training runs), `runs/isaac/` (Isaac Lab logs, once training starts). Pre-pivot
+  runs sit loose at `runs/` top level; history is not moved.
+- `sims/mujoco/xmls/menagerie`, `runs/`, `data/`, `*.mp4` are gitignored

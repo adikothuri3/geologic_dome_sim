@@ -1,6 +1,6 @@
 """Gate for the full-body-collision G1 before it is trained on.
 
-    python scripts/check_full_collision.py
+    python sims/mujoco/scripts/check_full_collision.py
 
 Adding collision geometry to 15 bodies is easy to get subtly wrong, and the failure mode is
 quiet: a box placed a few centimetres off makes the robot rest on invisible geometry, or fight
@@ -26,8 +26,8 @@ os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 
 import numpy as np
 
-REPO = pathlib.Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
+REPO = pathlib.Path(__file__).resolve().parents[3]   # repo root
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 CONTRACT_GEOMS = [
     "left_foot", "right_foot", "left_shin", "right_shin",

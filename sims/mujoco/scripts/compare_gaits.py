@@ -1,6 +1,6 @@
 """Compare the gait of two trained policies under an identical command.
 
-    python scripts/compare_gaits.py runs/<run_a> runs/<run_b> [--command 1 0 0]
+    python sims/mujoco/scripts/compare_gaits.py runs/<run_a> runs/<run_b> [--command 1 0 0]
 
 Written for the Phase 2 stretch experiment (change one reward weight, show how the gait
 changes). Total reward cannot answer that question: changing a reward *weight* changes the
@@ -25,8 +25,8 @@ import sys
 os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 os.environ.setdefault("MUJOCO_GL", "egl")
 
-REPO = pathlib.Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
+REPO = pathlib.Path(__file__).resolve().parents[3]   # repo root
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 ENV_NAME = "G1JoystickFlatTerrain"
 

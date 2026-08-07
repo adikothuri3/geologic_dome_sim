@@ -1,7 +1,7 @@
 """Roll out a trained G1 policy and write an MP4.
 
-    python scripts/render_policy.py runs/<run_id>
-    python scripts/render_policy.py runs/<run_id> --command 0 0 1.0 --seconds 8
+    python sims/mujoco/scripts/render_policy.py runs/<run_id>
+    python sims/mujoco/scripts/render_policy.py runs/<run_id> --command 0 0 1.0 --seconds 8
 
 A reward curve says a policy improved. It does not say whether the gait looks like walking or
 like a controlled fall that happens to track velocity well. This renders the thing itself.
@@ -26,8 +26,8 @@ import sys
 os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 os.environ.setdefault("MUJOCO_GL", "egl")
 
-REPO = pathlib.Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
+REPO = pathlib.Path(__file__).resolve().parents[3]   # repo root
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 ENV_NAME = "G1JoystickFlatTerrain"
 FPS = 25

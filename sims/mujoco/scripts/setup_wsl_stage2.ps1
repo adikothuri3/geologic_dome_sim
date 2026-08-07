@@ -5,7 +5,7 @@ Stage 1 (already done, needed elevation): enabled Microsoft-Windows-Subsystem-Li
 VirtualMachinePlatform, installed the WSL runtime (2.7.11).
 
 This stage installs the Ubuntu 24.04 distro, creates a normal user non-interactively, and
-hands off to scripts/setup_wsl.sh inside WSL for the Linux-side toolchain.
+hands off to sims/mujoco/scripts/setup_wsl.sh inside WSL for the Linux-side toolchain.
 
     powershell -ExecutionPolicy Bypass -File scripts\setup_wsl_stage2.ps1
 
@@ -84,13 +84,13 @@ wsl.exe -d $Distro -- bash -lc 'nvidia-smi --query-gpu=name,memory.total,driver_
 
 if ($SkipLinuxSetup) {
     Write-Host "`nSkipping Linux setup (-SkipLinuxSetup). Run it yourself with:" -ForegroundColor Yellow
-    Write-Host "    wsl -d $Distro -- bash -lc 'cd /mnt/c/Users/Aditya/VSCode/GeologicDome && bash scripts/setup_wsl.sh --all'"
+    Write-Host "    wsl -d $Distro -- bash -lc 'cd /mnt/c/Users/Aditya/VSCode/GeologicDome && bash sims/mujoco/scripts/setup_wsl.sh --all'"
     exit 0
 }
 
-Step 'linux toolchain (scripts/setup_wsl.sh --all)'
+Step 'linux toolchain (sims/mujoco/scripts/setup_wsl.sh --all)'
 $repoWsl = (wsl.exe -d $Distro -- wslpath -a ($repo -replace '\\', '/')) -replace "`0", ''
 $repoWsl = $repoWsl.Trim()
 Write-Host "repo inside WSL: $repoWsl"
-wsl.exe -d $Distro -- bash -lc "cd '$repoWsl' && bash scripts/setup_wsl.sh --all"
+wsl.exe -d $Distro -- bash -lc "cd '$repoWsl' && bash sims/mujoco/scripts/setup_wsl.sh --all"
 exit $LASTEXITCODE

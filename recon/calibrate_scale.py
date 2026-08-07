@@ -27,12 +27,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
 import open3d as o3d
 
-from clean_cloud import fit_ground_plane
+# Sibling import must not depend on the caller's CWD.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from clean_cloud import fit_ground_plane  # noqa: E402
 
 # A reconstruction whose camera path is many times its own extent has drifted,
 # and its poses cannot anchor anything. Loop sits at 3.4; the courthouse runs

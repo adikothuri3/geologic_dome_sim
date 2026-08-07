@@ -1,7 +1,7 @@
 """Phase 2: train the G1 joystick locomotion policy on this 8 GB box.
 
-    python scripts/train_g1.py --smoke      # ~minutes, proves the loop runs end to end
-    python scripts/train_g1.py              # the real baseline run
+    python sims/mujoco/scripts/train_g1.py --smoke  # ~minutes, proves the loop runs end to end
+    python sims/mujoco/scripts/train_g1.py          # the real baseline run
 
 Implements the `training-run` skill's non-negotiables:
   * num_envs capped at 1024-2048 (upstream default 8192 OOMs on a 4060 Ti)
@@ -32,8 +32,9 @@ from datetime import datetime, timezone
 # Allocating on demand leaves the display its share; num_envs is the lever for the rest.
 os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 
-REPO = pathlib.Path(__file__).resolve().parent.parent
-RUNS = REPO / "runs"
+MJ = pathlib.Path(__file__).resolve().parents[1]     # sims/mujoco/
+REPO = pathlib.Path(__file__).resolve().parents[3]   # repo root
+RUNS = REPO / "runs" / "mujoco"
 EXPERIMENTS = REPO / "notes" / "experiments.md"
 
 ENV_NAME = "G1JoystickFlatTerrain"
@@ -41,10 +42,10 @@ NUM_MINIBATCHES = 32
 
 # Our full-collision scene. Playground resolves <include> and mesh paths relative to the
 # top-level scene file, so this has to be executed from inside its own xmls/ directory --
-# a copy elsewhere loads without meshes. sim/ holds the source of truth; sync_full_collision_scene()
-# copies it into place.
-FULL_COLLISION_SCENE = REPO / "sim" / "scene_g1_full_collision.xml"
-FULL_COLLISION_BODY = REPO / "sim" / "g1_full_collision.xml"
+# a copy elsewhere loads without meshes. sims/mujoco/xmls/ holds the source of truth;
+# sync_full_collision_scene() copies it into place.
+FULL_COLLISION_SCENE = MJ / "xmls" / "scene_g1_full_collision.xml"
+FULL_COLLISION_BODY = MJ / "xmls" / "g1_full_collision.xml"
 FULL_COLLISION_TASK = "full_collision"
 
 # Constraint rows per env. Upstream sets njmax = 29*2 + 8*4 = 90 and the feet-only baseline
@@ -67,7 +68,7 @@ def sync_full_collision_scene():
     xmls_dir = consts.task_to_xml("flat_terrain").parent
     if not FULL_COLLISION_BODY.exists():
         sys.exit(f"{rel(FULL_COLLISION_BODY)} is missing. "
-                 "Generate it with: python scripts/make_full_collision_xml.py")
+                 "Generate it with: python sims/mujoco/scripts/make_full_collision_xml.py")
     shutil.copyfile(FULL_COLLISION_BODY, xmls_dir / FULL_COLLISION_BODY.name)
     dest = xmls_dir / FULL_COLLISION_SCENE.name
     shutil.copyfile(FULL_COLLISION_SCENE, dest)
@@ -188,7 +189,7 @@ def main() -> None:
 
     devices = jax.devices()
     if not any(d.platform == "gpu" for d in devices):
-        sys.exit("No GPU visible to JAX. Run scripts/check_phase2.py first.")
+        sys.exit("No GPU visible to JAX. Run sims/mujoco/scripts/check_phase2.py first.")
 
     env_cfg = registry.get_default_config(ENV_NAME)
     env_cfg.njmax = args.njmax or (

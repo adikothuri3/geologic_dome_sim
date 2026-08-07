@@ -3,7 +3,7 @@
 Everything the rest of Phase 1 assumes about unitree_g1 is asserted here rather than
 trusted from documentation.
 
-    python scripts/inspect_model.py
+    python sims/mujoco/scripts/inspect_model.py
 """
 
 import os

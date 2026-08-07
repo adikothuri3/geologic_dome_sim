@@ -1,6 +1,6 @@
 """Phase 2 smoke test: does JAX see the GPU, and does the G1 joystick env actually run?
 
-    python scripts/check_phase2.py
+    python sims/mujoco/scripts/check_phase2.py
 
 Cheap and fast. Run this before any training so a broken CUDA install or a Playground API
 change fails in seconds rather than twenty minutes into a run.
@@ -72,7 +72,7 @@ def main() -> None:
               "unroll_length", "num_evals", "learning_rate", "episode_length"):
         if k in p:
             print(f"  {k:20s} {p[k]}")
-    print("\n  num_envs 8192 will OOM on an 8 GB 4060 Ti -- scripts/train_g1.py scales it "
+    print("\n  num_envs 8192 will OOM on an 8 GB 4060 Ti -- sims/mujoco/scripts/train_g1.py scales it "
           "down\n  and keeps batch_size * num_minibatches == num_envs.")
 
     print("\nPhase 2 environment OK.")

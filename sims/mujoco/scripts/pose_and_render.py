@@ -1,6 +1,6 @@
 """Step B4: the Phase 1 demo -- G1 posed through keyframes on a numpy heightfield, to MP4.
 
-    python sim/pose_and_render.py
+    python sims/mujoco/scripts/pose_and_render.py
 
 No policy, no RL. Poses are held by the position actuators that Menagerie's g1.xml already
 defines; `mj_resetDataKeyframe` seeds both qpos and ctrl from a keyframe, and moving
@@ -18,12 +18,13 @@ import imageio.v2 as iio
 import mujoco
 import numpy as np
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from terrain.make_hfield import fill_hfield, sample_height  # noqa: E402
 
-REPO = pathlib.Path(__file__).resolve().parent.parent
-SCENE = REPO / "sim" / "scene_g1_hfield.xml"
-OUT = REPO / "phase1_stand.mp4"
+MJ = pathlib.Path(__file__).resolve().parents[1]     # sims/mujoco/
+REPO = pathlib.Path(__file__).resolve().parents[3]   # repo root
+SCENE = MJ / "xmls" / "scene_g1_hfield.xml"
+OUT = REPO / "reports" / "phase1_stand.mp4"
 
 CTRL_DT = 0.02
 SUBSTEPS = 10  # x sim_dt 0.002 = CTRL_DT
@@ -61,11 +62,11 @@ def pelvis_clearance(model, data, grid) -> float:
 
 
 def main() -> None:
-    if not (REPO / "sim" / "menagerie").exists():
+    if not (MJ / "xmls" / "menagerie").exists():
         sys.exit(
-            "sim/menagerie is missing. Point it at the Menagerie clone (install step A4):\n"
-            "  Linux:   ln -s ~/src/menagerie sim/menagerie\n"
-            "  Windows: New-Item -ItemType Junction -Path sim\\menagerie "
+            "sims/mujoco/xmls/menagerie is missing. Point it at the Menagerie clone:\n"
+            "  Linux:   ln -s ~/src/menagerie sims/mujoco/xmls/menagerie\n"
+            "  Windows: New-Item -ItemType Junction -Path sims\\mujoco\\xmls\\menagerie "
             "-Target C:\\Users\\Aditya\\src\\menagerie"
         )
 
@@ -171,8 +172,8 @@ def main() -> None:
         sys.exit(
             "\nDemo did not hold. Two usual causes:\n"
             "  * terrain too aggressive for a straight-legged stand -> lower elevation_z in\n"
-            "    sim/scene_g1_hfield.xml (currently 0.15) or raise FLAT_PAD_FRAC in\n"
-            "    terrain/make_hfield.py so the level spawn pad is wider;\n"
+            "    sims/mujoco/xmls/scene_g1_hfield.xml (currently 0.15) or raise FLAT_PAD_FRAC in\n"
+            "    sims/mujoco/terrain/make_hfield.py so the level spawn pad is wider;\n"
             "  * a pose transition swinging too much mass too fast -> lower MAX_JOINT_RATE."
         )
     print("\nPhase 1 demo criteria met.")

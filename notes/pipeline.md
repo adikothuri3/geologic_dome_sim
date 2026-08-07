@@ -1,6 +1,6 @@
 ---
 title: Pipeline architecture
-updated: 2026-08-06
+updated: 2026-08-07
 status: current
 ---
 
@@ -97,9 +97,9 @@ recon/reconstruct.py    --frames <dir> --out <run> --model_path <ckpt> [--mask_s
 recon/eval_ate.py       --run <run> --gt <run>/gt_tum.txt  # GT scoring (GrandTour input only)
 recon/calibrate_scale.py  <run>                    # -> scale.json (m/unit + ground plane)
 recon/clean_cloud.py      <run> --scale auto       # -> cloud_clean.ply, in metres
-recon/cloud_to_hfield.py  <run> --name <asset> --crop [--surface ground] [--smooth 2]
-terrain/drop_test.py      --asset <asset>          # terrain gate
-scripts/settle_g1_recon.py --asset <asset> --render # robot gate
+sims/mujoco/terrain/cloud_to_hfield.py  <run> --name <asset> --crop [--surface ground] [--smooth 2]
+sims/mujoco/terrain/drop_test.py        --asset <asset>          # terrain gate
+sims/mujoco/scripts/settle_g1_recon.py  --asset <asset> --render # robot gate
 ```
 
 ### Benchmark footage with a ground truth: GrandTour
@@ -132,7 +132,7 @@ Three things this shipped that the plan did not anticipate:
 
 Terrain geom: `solref="0.008 1" solimp="0.9 0.95 0.001"`, `friction="1 0.005 0.0001"`, `condim="3"`, timestep 0.002 s.
 
-`solref` 0.008 is 4× the timestep and mixes with Menagerie's foot geoms to 0.014. Menagerie's ankle geoms carry their own `solref` (0.02) that wins on foot contacts, so a settled G1 sinks **0.3 mm on flat ground and ~5 mm where a foot corner loads a sloped 5 cm cell**. That is foot compliance, not terrain error — the gate in `scripts/settle_g1_recon.py` allows 10 mm and counts *terrain* contacts only.
+`solref` 0.008 is 4× the timestep and mixes with Menagerie's foot geoms to 0.014. Menagerie's ankle geoms carry their own `solref` (0.02) that wins on foot contacts, so a settled G1 sinks **0.3 mm on flat ground and ~5 mm where a foot corner loads a sloped 5 cm cell**. That is foot compliance, not terrain error — the gate in `sims/mujoco/scripts/settle_g1_recon.py` allows 10 mm and counts *terrain* contacts only.
 
 ## Training recipe (Phase 5)
 

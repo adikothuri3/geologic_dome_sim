@@ -3,7 +3,7 @@
 A broken GL context found late is what turns Phase 1 into a missed deadline, so this
 runs standalone against Menagerie's own scene.xml -- no project assets required.
 
-    MUJOCO_GL=egl python scripts/check_render.py
+    MUJOCO_GL=egl python sims/mujoco/scripts/check_render.py
 
 If this fails, try in order:
   1. create /usr/share/glvnd/egl_vendor.d/10_nvidia.json so glvnd finds the WSL driver
@@ -19,7 +19,7 @@ import mujoco
 
 MENAGERIE = pathlib.Path(os.environ.get("MENAGERIE_DIR", "~/src/menagerie")).expanduser()
 SCENE = MENAGERIE / "unitree_g1" / "scene.xml"
-OUT = pathlib.Path(__file__).resolve().parent.parent / "reports" / "check_render.png"
+OUT = pathlib.Path(__file__).resolve().parents[3] / "reports" / "check_render.png"
 
 
 def main() -> None:
