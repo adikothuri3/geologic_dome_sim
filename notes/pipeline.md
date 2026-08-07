@@ -91,13 +91,36 @@ Scale calibration is mandatory before either path (monocular reconstruction has 
 ### The chain, as it actually runs (Aug 6)
 
 ```bash
+recon/fetch_grandtour.py --mission eig-1 --out <run>   # benchmark footage + CPT7 GT (optional)
+recon/measure_flow.py   --frames <dir>             # preflight gate, before any VRAM is spent
 recon/reconstruct.py    --frames <dir> --out <run> --model_path <ckpt> [--mask_sky]
+recon/eval_ate.py       --run <run> --gt <run>/gt_tum.txt  # GT scoring (GrandTour input only)
 recon/calibrate_scale.py  <run>                    # -> scale.json (m/unit + ground plane)
 recon/clean_cloud.py      <run> --scale auto       # -> cloud_clean.ply, in metres
 recon/cloud_to_hfield.py  <run> --name <asset> --crop [--surface ground] [--smooth 2]
 terrain/drop_test.py      --asset <asset>          # terrain gate
 scripts/settle_g1_recon.py --asset <asset> --render # robot gate
 ```
+
+### Benchmark footage with a ground truth: GrandTour
+
+Added 2026-08-06. Every reconstruction before this was scored by `traj_length_over_extent`, a
+self-consistency proxy. The **GrandTour** dataset (ETH Zurich RSL, arXiv 2602.18164 — ANYmal-D
+walked across Switzerland) supplies outdoor legged-robot footage *with* a survey-grade CPT7
+GNSS/INS reference, so `recon/eval_ate.py` can report ATE, RPE and — the part that matters most
+here — a **metres-per-unit scale measured against a real reference** instead of an assumed eye
+height ([[open-questions]]).
+
+`recon/fetch_grandtour.py` pulls a mission from HuggingFace (zarr + JPEG tars, no registration),
+rectifies the released camera model to an explicit pinhole straight into the output raster, and
+composes the ground truth through the camera's 0.417 m lever arm. Two things it encodes that are
+easy to get wrong: the released `hdr_front` stream is **10 Hz, not the paper's 30 fps**, and
+`zed2i_left_images` is the right stream for this model — 14.91 Hz, `radtan` with negligible
+distortion, and 16:9 so it lands on 518×294 rather than 518×350.
+
+This is *benchmark* footage, not expedition footage: it validates and tunes the toolchain, and
+its missions (EIG-1 alpine rock, SNOW-2 low texture) stand in for terrain the Everest route has.
+It does not replace [[capture-protocol]] or Pemba's own camera.
 
 Three things this shipped that the plan did not anticipate:
 

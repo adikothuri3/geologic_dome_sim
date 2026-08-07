@@ -10,6 +10,11 @@ sim/menagerie
 # lives in notes/experiments.md, which IS tracked.
 runs/
 
+# Third-party datasets pulled by recon/fetch_grandtour.py (GrandTour is ~4.7 GB for a
+# single mission's imagery). Re-fetchable from HuggingFace; the mission.json provenance
+# record that says exactly which bytes were used IS tracked, inside the run folder.
+data/
+
 # Phase 1 render outputs. The MP4 is regenerable (`python sim/pose_and_render.py`) and too
 # big for git; the contact sheets are lab-notebook evidence and are kept.
 *.mp4
