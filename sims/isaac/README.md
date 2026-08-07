@@ -31,18 +31,34 @@ Run `sims/isaac/setup_isaac.ps1` (idempotent). What it does:
 ## Smoke ladder (run in order; each step is a gate)
 
 ```powershell
-# (a) Isaac Sim opens headless and closes clean. First run is SLOW (shader cache) — be patient.
-& $env:USERPROFILE\venvs\isaac\Scripts\python.exe -c "from isaacsim import SimulationApp; app = SimulationApp({'headless': True}); app.close()"
+$py = "$env:USERPROFILE\venvs\isaac\Scripts\python.exe"
 
-# (b) The built-in G1 velocity task loads and steps with zero actions.
-python scripts\reinforcement_learning\rsl_rl\play.py --task Isaac-Velocity-Flat-G1-v0 --headless --num_envs 8   # from the IsaacLab checkout
+# (a) SimulationApp opens headless, closes clean, versions printed.
+#     First run is SLOW (shader cache) — be patient.
+& $py sims\isaac\scripts\check_isaac.py --gate a
 
-# (c) A 10-iteration training run completes and writes logs.
-python scripts\reinforcement_learning\rsl_rl\train.py --task Isaac-Velocity-Flat-G1-v0 --headless --num_envs 64 --max_iterations 10
+# (b) The FULL-COLLISION G1 flat task builds, resets, and survives zero-action
+#     steps with finite observations. First run downloads the G1 USD assets.
+& $py sims\isaac\scripts\check_isaac.py --gate b --num_envs 8
+
+# (c) A 10-iteration training smoke completes, writes runs/isaac/<run_id>/,
+#     and appends its notes/experiments.md row.
+& $py sims\isaac\scripts\train_g1_flat.py --smoke
 ```
 
-Point training logs at `runs/isaac/<YYYY-MM-DD-slug>/` and append a row to
-`notes/experiments.md` for every run — success or failure — per the `training-run` skill.
+## The full-collision task (Phase 4a)
+
+The stock `Isaac-Velocity-Flat-G1-v0` uses **`G1_MINIMAL_CFG`** — collision meshes
+stripped for speed, the same feet-only shortcut Playground took and the same reason
+it's wrong for this project. `sims/isaac/tasks/dome_g1/` registers
+**`Dome-G1FullCollision-Flat-v0`**: upstream's flat velocity task with
+`G1_CFG.replace(prim_path=...)` swapped in — every link's collision geometry live,
+rewards/observations/DR untouched.
+
+Training: `sims/isaac/scripts/train_g1_flat.py` — same run discipline as the legacy
+`train_g1.py` (clean-tree gate, config capture, `runs/isaac/<run_id>/` logs, mandatory
+`notes/experiments.md` row, success or failure). Local default 256 envs headless;
+real runs (4096 envs, 1500+ iterations) belong on a cloud GPU.
 
 ## This box vs. Isaac's minimums
 
@@ -74,7 +90,14 @@ below spec on both. The working plan (decided 2026-08-07):
 
 ## Layout
 
-- `tasks/` — Phase 4a task/env configs (G1 velocity overrides, unitree_rl_lab integration)
-- `terrain/` — Phase 4b converters (cloud → OBJ → USD; procedural configs)
+- `scripts/` — `check_isaac.py` (smoke gates a/b), `train_g1_flat.py` (Phase 4a trainer)
+- `tasks/dome_g1/` — the full-collision G1 task registration + configs
+- `terrain/` — Phase 4b converters (cloud → OBJ → USD; procedural configs) — placeholder
 
-Both are placeholders until the Isaac work starts.
+## Claude skills for this track
+
+Five official NVIDIA skills from `isaac-sim/isaacsim` are installed in `.claude/skills/`
+(copy-mode, no symlinks): `isaac-sim-headless-deployment`, `isaac-sim-troubleshooting`,
+`isaac-sim-validator`, `physics-simulation`, `urdf-mjcf-to-usd-conversion`. Note: they
+document Isaac Sim 6.0/Kit 110 — most content applies to our pinned 5.1, but check
+version-specific claims (e.g. Newton solver backends are 6.0-only) before acting on them.

@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "skills": {
+    "isaac-sim-headless-deployment": {
+      "source": "isaac-sim/isaacsim",
+      "sourceType": "github",
+      "skillPath": "skills/isaac-sim-headless-deployment/SKILL.md",
+      "computedHash": "4124718168002d458309358ea08b1e94d64dfc615348930aa30dc7fd4de30298"
+    },
+    "isaac-sim-troubleshooting": {
+      "source": "isaac-sim/isaacsim",
+      "sourceType": "github",
+      "skillPath": "skills/isaac-sim-troubleshooting/SKILL.md",
+      "computedHash": "e75835500bae173b2a228e79844707117cfec371330967ee2f4c4add86cc43cc"
+    },
+    "isaac-sim-validator": {
+      "source": "isaac-sim/isaacsim",
+      "sourceType": "github",
+      "skillPath": "skills/isaac-sim-validator/SKILL.md",
+      "computedHash": "e16e9db5984f1c0f199d282b0e75f903365effa797ca0e6941314de18ecd053f"
+    },
+    "physics-simulation": {
+      "source": "isaac-sim/isaacsim",
+      "sourceType": "github",
+      "skillPath": "skills/physics-simulation/SKILL.md",
+      "computedHash": "0727dfb16323f8e6ceb5cb9f905ae60271ede87c8d512b5555a0a1d2ba780183"
+    },
+    "urdf-mjcf-to-usd-conversion": {
+      "source": "isaac-sim/isaacsim",
+      "sourceType": "github",
+      "skillPath": "skills/urdf-mjcf-to-usd-conversion/SKILL.md",
+      "computedHash": "4503e3def1010b97f3e7bbcf0ae35aff9314f24f0c6ab2981b0b7c7f63339746"
+    }
+  }
+}

@@ -11,6 +11,12 @@
 
 $ErrorActionPreference = 'Stop'
 
+# Norton Antivirus MITMs TLS on this box: Windows tools trust its root, Python's OpenSSL
+# does not. The bundle below is pip's vendored certifi + the exported Norton root
+# (see notes/setup.md). Without it every pip call dies with CERTIFICATE_VERIFY_FAILED.
+$CaBundle = Join-Path $env:USERPROFILE 'venvs\ca-bundle-norton.pem'
+if (Test-Path $CaBundle) { $env:PIP_CERT = $CaBundle; $env:SSL_CERT_FILE = $CaBundle }
+
 $IsaacSimVersion = '5.1.0'
 $VenvDir  = Join-Path $env:USERPROFILE 'venvs\isaac'
 $SrcDir   = Join-Path $env:USERPROFILE 'src'
@@ -46,8 +52,12 @@ $VPy = Join-Path $VenvDir 'Scripts\python.exe'
 
 # ---------------------------------------------------------------- isaac sim --
 Step "isaacsim==$IsaacSimVersion (pip, ~10 GB download -- this takes a while)"
-$have = & $VPy -m pip show isaacsim 2>$null
-if ($have) {
+# PS 5.1: redirecting a native command's stderr under ErrorActionPreference=Stop turns
+# pip's harmless "not found" stderr line into a terminating error -- probe via exit code.
+$prevEap = $ErrorActionPreference; $ErrorActionPreference = 'SilentlyContinue'
+& $VPy -m pip show isaacsim *>$null
+$ErrorActionPreference = $prevEap
+if ($LASTEXITCODE -eq 0) {
     Write-Host '  already installed'
 } else {
     & $VPy -m pip install "isaacsim[all,extscache]==$IsaacSimVersion" --extra-index-url https://pypi.nvidia.com
@@ -56,16 +66,19 @@ if ($have) {
 # ---------------------------------------------------------------- isaac lab --
 Step "Isaac Lab ($LabRef) at $LabDir"
 if (-not (Test-Path $SrcDir)) { New-Item -ItemType Directory $SrcDir | Out-Null }
+# git's global config pins OpenSSL, which can't verify through Norton's TLS MITM --
+# use Windows Schannel for these calls (same workaround notes/setup.md documents).
 if (-not (Test-Path (Join-Path $LabDir '.git'))) {
-    git clone $LabRepo $LabDir
+    git -c http.sslBackend=schannel clone $LabRepo $LabDir
 }
-git -C $LabDir fetch --tags --quiet
+git -C $LabDir -c http.sslBackend=schannel fetch --tags --quiet
 git -C $LabDir checkout $LabRef --quiet
 Write-Host "  checked out $LabRef"
 
 Step 'isaaclab.bat --install (installs isaaclab pkgs + RSL-RL into the venv)'
-# isaaclab.bat discovers the python via env var when not using its bundled _isaac_sim dir.
-$env:ISAACLAB_PATH = $LabDir
+# isaaclab.bat installs into the ACTIVE python environment -- activate the venv first,
+# or everything lands in system Python.
+& (Join-Path $VenvDir 'Scripts\Activate.ps1')
 Push-Location $LabDir
 try {
     & .\isaaclab.bat --install
