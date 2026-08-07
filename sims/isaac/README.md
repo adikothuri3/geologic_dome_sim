@@ -1,10 +1,14 @@
 # `sims/isaac/` — the primary sim track (Isaac Sim + Isaac Lab)
 
-> **Status: scaffolded 2026-08-07, not yet installed.** This is the primary simulator going
-> forward — it mirrors the Robot Everest team's actual stack ("Mapping the full Everest route
-> using Lingbot-Map into IsaacSim, with domain randomization over snow, ice friction, and wind
-> gust"). See the 2026-08-07 entry in `notes/decisions.md` for the full pivot rationale.
-> The MuJoCo track lives on as working legacy + sim2sim validator in `sims/mujoco/`.
+> **Status: installed and smoke-tested 2026-08-07** — all three gates green on the local
+> box (SimulationApp ~8 s headless; full-collision G1 builds and steps; 10-iteration
+> RSL-RL smoke at ~690 steps/s). This is the primary simulator going forward — it mirrors
+> the Robot Everest team's actual stack ("Mapping the full Everest route using Lingbot-Map
+> into IsaacSim, with domain randomization over snow, ice friction, and wind gust"). See
+> the 2026-08-07 entry in `notes/decisions.md` for the pivot rationale, and
+> `notes/setup.md` for install state + the three Windows quirks (Norton TLS, EULA env var,
+> Kit stdout hijack). The MuJoCo track lives on as working legacy + sim2sim validator in
+> `sims/mujoco/`.
 
 ## Pinned versions (and why)
 

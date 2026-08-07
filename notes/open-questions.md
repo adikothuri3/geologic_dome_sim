@@ -133,7 +133,7 @@ The 8 GB ceiling on `kv_cache_sliding_window` is still real and still bounds wha
 
 ## Below Isaac's minimum spec on both axes
 
-This box is 8 GB VRAM / 16 GB RAM against Isaac Sim's official 16/32 minimum — and LingBot-Map's KV cache eats the same 8 GB ([[setup]] has the per-workload tactics). The working split is headless low-env smoke tests locally, real training on cloud. **Open:** whether the headless SimulationApp even opens reliably in 16 GB system RAM; what local `num_envs` ceiling the G1 velocity task actually has on 8 GB; and the cloud-GPU budget/provider choice for Phase 4a/5 runs and the expedition window.
+This box is 8 GB VRAM / 16 GB RAM against Isaac Sim's official 16/32 minimum — and LingBot-Map's KV cache eats the same 8 GB ([[setup]] has the per-workload tactics). **Partly answered (2026-08-07):** the headless SimulationApp opens fine (~8 s), and the full-collision G1 task trains at 64 envs / ~690 steps/s locally — the below-minimum warning applies to the GUI/renderer path, not headless physics at small env counts. **Still open:** the actual local `num_envs`/VRAM ceiling for the G1 velocity task (only 8 and 64 tested); whether a full 1500-iteration flat-plane run is viable locally or needs cloud from the start; and the cloud-GPU budget/provider choice for Phase 4a/5 runs and the expedition window.
 
 ## Closed loop on the expedition
 

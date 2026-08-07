@@ -106,33 +106,9 @@ config = {
 }
 (run_dir / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
 
-status, metrics_txt = "FAILED", "did not start"
-t_train = time.time()
-try:
-    env = gym.make(TASK, cfg=env_cfg)
-    env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
-    runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=str(run_dir),
-                            device=agent_cfg.device)
-    runner.learn(num_learning_iterations=args.max_iterations, init_at_random_ep_len=True)
-    # RSL-RL keeps the running mean episode reward on the logger.
-    rew = None
-    try:
-        buf = runner.logger.rewbuffer if hasattr(runner, "logger") else None
-        if buf and len(buf) > 0:
-            rew = sum(buf) / len(buf)
-    except Exception:
-        pass
-    minutes = (time.time() - t_train) / 60
-    metrics_txt = (f"mean ep reward {rew:.2f}, " if rew is not None else "") + \
-                  f"{args.max_iterations} iters, {minutes:.0f} min, checkpoints in runs/isaac/{run_id}"
-    status = "ok"
-    env.close()
-except Exception as e:  # noqa: BLE001 — the row must be written no matter what
-    metrics_txt = f"FAILED — {type(e).__name__}: {e}"
-    raise
-finally:
-    took = f"smoke test only, not a usable policy" if args.smoke else \
-           f"local Isaac run at {args.num_envs} envs; real training belongs on cloud"
+def write_row(status: str, metrics_txt: str) -> None:
+    took = ("smoke test only, not a usable policy" if args.smoke else
+            f"local Isaac run at {args.num_envs} envs; real training belongs on cloud")
     append_experiment_row({
         "run_id": run_id, "commit": commit,
         "config": f"{TASK}, **full-collision G1_CFG**, RSL-RL PPO, iters={args.max_iterations}, seed={args.seed}",
@@ -140,6 +116,30 @@ finally:
         "metrics": metrics_txt,
         "takeaway": took if status == "ok" else metrics_txt,
     })
-    simulation_app.close()
 
-print(f"done: {status}  ({(time.time() - t0) / 60:.1f} min total)")
+
+t_train = time.time()
+try:
+    env = gym.make(TASK, cfg=env_cfg)
+    env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
+    runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=str(run_dir),
+                            device=agent_cfg.device)
+    runner.learn(num_learning_iterations=args.max_iterations, init_at_random_ep_len=True)
+    minutes = (time.time() - t_train) / 60
+    metrics_txt = (f"{args.max_iterations} iters, {minutes:.0f} min, "
+                   f"final ckpt model_{args.max_iterations - 1}.pt in runs/isaac/{run_id} "
+                   f"(curves: tensorboard --logdir runs/isaac/{run_id})")
+except Exception as e:  # noqa: BLE001 — the row must be written no matter what
+    write_row("FAILED", f"FAILED — {type(e).__name__}: {e}")
+    raise
+
+# The row is written BEFORE teardown: on Windows, Kit shutdown (env.close /
+# simulation_app.close) can die with a native access violation that no finally
+# block survives. The run's result must already be on disk by then.
+write_row("ok", metrics_txt)
+print(f"done: ok  ({(time.time() - t0) / 60:.1f} min total)", file=sys.stderr, flush=True)
+
+try:
+    env.close()
+finally:
+    simulation_app.close()

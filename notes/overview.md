@@ -25,11 +25,15 @@ status: current
 - Commitment: ~12–15 hrs/week; every phase ends in a demo, not a slide deck
 
 > [!info] Current phase
-> **Phase 4 — Isaac Sim bring-up** (re-targeted Aug 7): install Isaac Sim/Isaac Lab
-> (`sims/isaac/setup_isaac.ps1`), run the smoke ladder, train a full-body-collision G1 on a
-> flat plane, then import terrain — LingBot-Map recon if it proves usable, stock/procedural
-> mountain terrain otherwise. Phase 3 (LingBot-Map) continues in parallel and is used
-> **only if it works**; it is no longer on the critical path.
+> **Phase 4 — Isaac Sim bring-up** (re-targeted Aug 7). **Isaac is installed and the whole
+> smoke ladder is green** (Aug 7, same day): headless SimulationApp in ~8 s, the
+> **full-collision G1** (`Dome-G1FullCollision-Flat-v0`, our own task — stock Isaac uses
+> the stripped `G1_MINIMAL_CFG`) builds and steps, and a 10-iteration RSL-RL training
+> smoke ran at ~690 steps/s on the 8 GB card — see [[setup]] and [[experiments]].
+> Next: the real Phase 4a flat-plane policy (cloud GPU), then 4b terrain import —
+> LingBot-Map recon if it proves usable, stock/procedural mountain terrain otherwise.
+> Phase 3 (LingBot-Map) continues in parallel and is used **only if it works**; it is no
+> longer on the critical path.
 >
 > Phases 1 and 2 both landed early in MuJoCo: Phase 1 on Aug 2, Phase 2 on Aug 4 with a
 > self-trained joystick policy walking and turning under command on a full-body-collision
@@ -59,7 +63,7 @@ status: current
 | Aug 9 | 1 — MuJoCo fluency | G1 standing on a numpy-generated heightfield, rendered as video | **done** (Aug 2, MuJoCo) |
 | Aug 16 | 2 — First locomotion policy | Self-trained joystick policy walking, every reward term explained | **done** (Aug 4, MuJoCo/MJX) |
 | Aug 23 | 3 — LingBot-Map reconstruction | Phone video → dense point cloud of a local trail, camera trajectory overlaid | **toolchain done** (Aug 5); **demonstrated on outdoor trail footage with ground truth** (Aug 6, GrandTour EIG-1); used going forward **only if it works** — no longer on the critical path |
-| Aug 30 | 4 — Isaac Sim real2sim terrain | **4a:** full-body-collision G1 trained on a flat plane in Isaac Lab (headless local smoke, cloud for the real run). **4b:** terrain imported — LingBot recon mesh via MeshConverter if usable, else stock/procedural mountain terrain. Hackathon demo Aug 29 | **re-targeted to Isaac** (Aug 7). MuJoCo chain done Aug 6 (G1 *stands* on recon terrain), recorded in `sims/mujoco/` |
+| Aug 30 | 4 — Isaac Sim real2sim terrain | **4a:** full-body-collision G1 trained on a flat plane in Isaac Lab (headless local smoke, cloud for the real run). **4b:** terrain imported — LingBot recon mesh via MeshConverter if usable, else stock/procedural mountain terrain. Hackathon demo Aug 29 | **Isaac installed, smoke ladder green** (Aug 7): full-collision G1 task loads, steps, and trains locally. 4a real policy + 4b outstanding. MuJoCo chain done Aug 6, recorded in `sims/mujoco/` |
 | Sept 13 | 5 — Sim2Real training loop | Fine-tuned policy beats baseline on (recon or mountain) terrain in Isaac Lab, with metrics table | not started |
 | Sept 27 | 6 — DimOS integration | One command: replayed robot session → Isaac-ready terrain asset (USD) | not started |
 | Oct 5–20 | 7 — Live expedition pipeline | Daily recon + terrain analytics from Pemba's Everest footage | not started |

@@ -10,12 +10,24 @@ The dev box for the whole home-phase pipeline (see [[pipeline]]). One machine, 8
 
 ## Isaac Sim / Isaac Lab (primary sim — pivoted 2026-08-07)
 
-**Status: scripted, not yet installed.** Run `sims/isaac/setup_isaac.ps1` when Phase 4 bring-up starts; `sims/isaac/README.md` holds the smoke ladder and version rationale.
+**Status: installed and smoke-tested 2026-08-07.** All three gates green on this box — see the [[experiments]] row `2026-08-07-isaac-g1fc-flat-smoke` and `runs/isaac/gates.log`.
 
-- **Pinned:** Isaac Sim **5.1.0** + Isaac Lab **v2.3.2**, **Python 3.11** (not 3.12), pip install with `--extra-index-url https://pypi.nvidia.com`. **Native Windows 11 — no WSL.** Do not use Isaac Lab 3.0 beta (Ubuntu-only).
-- **Venv:** `%USERPROFILE%\venvs\isaac` · **Isaac Lab clone:** `C:\Users\Aditya\src\IsaacLab`
-- **This box is below Isaac's official minimum** (8 GB VRAM vs 16; 16 GB RAM vs 32). Local work is headless smoke tests only (`--headless`, `num_envs` 64–256, close browsers first — the RTX renderer alone eats ~7 GB). **Real training runs go to a rented cloud GPU** (≥24 GB). If even the headless SimulationApp smoke fails on 16 GB RAM, that confirms cloud-first; it does not block anything else.
-- Training logs: `runs/isaac/<YYYY-MM-DD-slug>/`, one [[experiments]] row per run.
+- **Installed:** isaacsim **5.1.0.0**, isaaclab **0.54.2**, isaaclab-tasks 0.11.12, isaaclab-assets 0.2.4, rsl-rl-lib 3.1.2, torch **2.7.0+cu128** (CUDA confirmed), **Python 3.11.9**. **Native Windows 11 — no WSL.** Not Isaac Lab 3.0 beta (Ubuntu-only).
+- **Venv:** `%USERPROFILE%\venvs\isaac` · **Isaac Lab clone:** `C:\Users\Aditya\src\IsaacLab` (tag v2.3.2)
+- Installer: `sims/isaac/setup_isaac.ps1` (idempotent). It installs the Isaac Lab source packages with **direct pip** — `isaaclab.bat --install` only detects conda or its bundled kit-python, not a plain venv — and pins **`tensordict==0.8.3`** (the latest wheel is built against a newer torch ABI and access-violates on import with torch 2.7.0).
+- **Measured on this box** (below Isaac's 16 GB VRAM / 32 GB RAM minimum): headless SimulationApp up in **~8 s**; full-collision G1 env (8 envs) builds in 26 s; 10 RSL-RL iterations at 64 envs run at **~690 steps/s**. So local headless smoke work is genuinely fine; **real training still goes to a rented cloud GPU** (≥24 GB) — never open the GUI viewport here.
+- Training logs: `runs/isaac/<YYYY-MM-DD-slug>/`, one [[experiments]] row per run (`sims/isaac/scripts/train_g1_flat.py` writes both).
+
+> [!warning] Three Windows/box quirks, all handled in the installer
+> - **Norton MITMs TLS.** Python/OpenSSL can't verify anything until you point it at
+>   `%USERPROFILE%\venvs\ca-bundle-norton.pem` (pip's certifi + the exported Norton root;
+>   set as `PIP_CERT`/`SSL_CERT_FILE`). git needs `-c http.sslBackend=schannel`. This is the
+>   same root cause as the WSL-era git TLS workaround below.
+> - **The Omniverse EULA blocks headless first launch.** `OMNI_KIT_ACCEPT_EULA=YES` is
+>   persisted as a user env var; new shells have it, pre-existing ones don't.
+> - **Kit hijacks python stdout** — prints vanish. Gate verdicts go to stderr +
+>   `runs/isaac/gates.log`; and Kit teardown (`env.close()`) can die with a native access
+>   violation, so `train_g1_flat.py` writes its experiments row *before* closing anything.
 
 ## Hardware & OS (verified 2026-08-02)
 
