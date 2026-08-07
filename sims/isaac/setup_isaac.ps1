@@ -17,6 +17,11 @@ $ErrorActionPreference = 'Stop'
 $CaBundle = Join-Path $env:USERPROFILE 'venvs\ca-bundle-norton.pem'
 if (Test-Path $CaBundle) { $env:PIP_CERT = $CaBundle; $env:SSL_CERT_FILE = $CaBundle }
 
+# First Kit launch asks for the Omniverse EULA interactively; headless/CI shells must
+# accept via env var. Persist for the user so every future shell has it.
+$env:OMNI_KIT_ACCEPT_EULA = 'YES'
+[Environment]::SetEnvironmentVariable('OMNI_KIT_ACCEPT_EULA', 'YES', 'User')
+
 $IsaacSimVersion = '5.1.0'
 $VenvDir  = Join-Path $env:USERPROFILE 'venvs\isaac'
 $SrcDir   = Join-Path $env:USERPROFILE 'src'
@@ -75,16 +80,26 @@ git -C $LabDir -c http.sslBackend=schannel fetch --tags --quiet
 git -C $LabDir checkout $LabRef --quiet
 Write-Host "  checked out $LabRef"
 
-Step 'isaaclab.bat --install (installs isaaclab pkgs + RSL-RL into the venv)'
-# isaaclab.bat installs into the ACTIVE python environment -- activate the venv first,
-# or everything lands in system Python.
-& (Join-Path $VenvDir 'Scripts\Activate.ps1')
-Push-Location $LabDir
-try {
-    & .\isaaclab.bat --install
-} finally {
-    Pop-Location
+Step 'Isaac Lab packages -> venv (direct pip; isaaclab.bat only understands conda/kit-python)'
+# Two Windows-venv realities, discovered the hard way:
+#  * isaaclab.bat's editable-install loop can't find a plain venv's python -- it looks for
+#    conda or its bundled _isaac_sim\python.bat. So install the source packages directly.
+#  * flatdict 4.0.1 (an isaaclab dep) imports pkg_resources at build time, which pip's
+#    isolated build env (modern setuptools) no longer ships -- build it against the venv's
+#    own setuptools instead.
+& $VPy -m pip install setuptools wheel | Out-Null
+& $VPy -m pip install --no-build-isolation flatdict==4.0.1
+foreach ($pkg in @('source\isaaclab', 'source\isaaclab_assets', 'source\isaaclab_rl[rsl-rl]', 'source\isaaclab_tasks')) {
+    Write-Host "  pip install -e $pkg"
+    & $VPy -m pip install --quiet --editable (Join-Path $LabDir $pkg)
+    if ($LASTEXITCODE -ne 0) { throw "editable install failed: $pkg" }
 }
+# rsl-rl pulls in tensordict unpinned; the latest wheel is built against a newer torch ABI
+# and its C extension access-violates on import with our torch 2.7.0. 0.8.x matches 2.7.
+& $VPy -m pip install --quiet "tensordict==0.8.3"
+# NOTE: `import isaaclab` only works inside a running SimulationApp (pxr/omni modules are
+# injected by Kit). Verify install state via package metadata; the real check is gate (a).
+& $VPy -c "from importlib.metadata import version; [print(f'  {p:>16}', version(p)) for p in ('isaacsim','isaaclab','isaaclab-tasks','isaaclab-assets','isaaclab-rl','rsl-rl-lib')]"
 
 # --------------------------------------------------------------------- done --
 Step 'done -- smoke ladder (run these YOURSELF, in order; each is a gate)'
