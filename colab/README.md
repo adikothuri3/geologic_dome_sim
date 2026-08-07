@@ -36,23 +36,32 @@ in the result would not mean anything.
 1. Upload the notebook to Colab. **Runtime → Change runtime type → A100 or L4.** A T4 works but
    drops to fp16 (`reconstruct.py` picks bf16 only on sm_80+), so two variables change at once and
    the comparison is muddier.
-2. Run cells top to bottom. Cell 4 needs `recon/` — easiest route is a zip:
+2. Run cells top to bottom — **nothing to upload**. The `recon/` scripts are **baked into the
+   notebook** as a base64 blob (cell 8) by `colab/embed_recon.py`, so the notebook can never run
+   stale copies of the pipeline.
+3. Total runtime on an A100 is roughly 20–30 minutes including the sweep; the 4.63 GB checkpoint
+   download is the slowest single step.
 
-   ```powershell
-   Compress-Archive -Path recon -DestinationPath recon.zip -Force
-   ```
+## Keeping the blob fresh
 
-   It also accepts a mounted Drive copy, or a private clone if you store a GitHub PAT in Colab
-   Secrets as `GD_TOKEN`.
-3. Everything else is automatic. Total runtime on an A100 is roughly 20–30 minutes including the
-   sweep; the 4.63 GB checkpoint download is the slowest single step.
+After **any** change to `recon/*.py`, re-bake and verify before committing:
+
+```powershell
+python colab\embed_recon.py          # regenerates the RECON_BLOB cell
+python colab\embed_recon.py --check  # exits 1 if the notebook is stale
+```
+
+(`cloud_to_hfield.py` is no longer part of the blob — terrain conversion is per-sim and runs
+locally, not on the rented GPU.)
 
 ## Bringing results back
 
 The last cell zips `cloud_clean.ply` + `run.json` + `scale.json` + `clean_stats.json` + renders +
-logs per run and downloads it. Unzip into `runs/recon/` and the rest of the chain
-(`recon/cloud_to_hfield.py` → `terrain/drop_test.py` → `scripts/settle_g1_recon.py`) runs locally
-against it unchanged.
+logs per run and downloads it. Unzip into `runs/recon/` and the legacy MuJoCo chain
+(`sims/mujoco/terrain/cloud_to_hfield.py` → `sims/mujoco/terrain/drop_test.py` →
+`sims/mujoco/scripts/settle_g1_recon.py`) runs locally against it unchanged. The Isaac terrain
+path (cloud → OBJ → USD, `sims/isaac/terrain/`) will consume the same `cloud_clean.ply` once
+built.
 
 Every run still needs a row in `notes/experiments.md` — the notebook prints them formatted; fill in
-the commit hash of the `recon/` you uploaded.
+the commit hash of the code that was baked into the blob.

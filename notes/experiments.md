@@ -1,6 +1,6 @@
 ---
 title: Experiment log
-updated: 2026-08-06
+updated: 2026-08-07
 status: current
 ---
 
@@ -45,7 +45,6 @@ Columns: `run_id` (date + short slug), `commit` (short hash of the code that ran
 | 2026-08-06-upstream-loop | 766cdf0-dirty | our loader, `example/loop` (237 fr), streaming, **kfi=1**, kvsw=24, nsf=8, cami=4, conf p55, base ckpt | — | 77.7 s, 3.05 fps, peak VRAM **7.19 GB**, **4.07M pts**, 1 window, ratio 3.36 | **the reference baseline: a clean, coherent office loop on this exact GPU.** Proves the tool, checkpoint, wrapper and box are all fine — and that a *higher* ratio (3.36) can look far better than a lower one (2.47), killing that metric as a quality gate for good |
 | 2026-08-06-landscape-kf1 | 766cdf0-dirty | our room, in-room 165 fr @10 fps, **long ckpt**, streaming, **kfi=1** (upstream default), kvsw=24, nsf=8 | — | 52.2 s, 7.10 GB, 2.73M pts, 1 window, ratio **2.47** — still visually unusable | the last untried upstream default changes nothing on our footage. **Motion analysis settles it:** our clip = 578° rotation / 5.36 translation = **107.9 °/unit**, vs `loop`'s 429°/36.02 = **11.9 °/unit**. Pivoting in place yields no parallax; config cannot manufacture it. Rule zero added to [[capture-protocol]] |
 | 2026-08-05-landscape-long | 766cdf0-dirty | **`lingbot-map-long.pt`**, in-room 165 frames @10 fps, streaming, kfi=5, kvsw=24, **num_scale_frames=8**, **camera_num_iterations=8**, conf p60, pixel_stride 1 | — | 52.8 s, 3.12 fps, peak VRAM **6.98 GB**, **9.72M pts**, 1 window, **ratio 2.58** | **best reconstruction to date** — room shell readable (walls, corner, ceiling, framed art, blinds). Long checkpoint loaded into the same architecture with no missing keys. Surfaces still show "corduroy" ribbing from residual per-frame pose jitter |
-
 | 2026-08-06-courthouse-kv16 | dbf99dc | `example/courthouse` (286 fr, outdoor), streaming kfi=1, **kvsw=16**, nsf=8, `--mask_sky`, base ckpt | — | 80.4 s, 6.30 GB, 5.26M pts, 114k sky pts masked, **ratio 24.88**, traj_step_max 7.9× median | first outdoor run. Per-frame geometry excellent (banners and window mullions legible) but **poses scribble**; kvsw dropped to 16 only because kvsw 24 OOM'd at frame 240/286 |
 | 2026-08-06-courthouse-kf2 | dbf99dc | same, **kfi=2** (horizon 48 frames) + kvsw=24 | — | 81.6 s, 7.09 GB, 5.29M pts, **ratio 25.10** | doubling the memory horizon at constant VRAM changed nothing (24.88 → 25.10). **The pose failure is not a cache-size effect at the margin** — it needs upstream's whole 64-view cache, not a bit more |
 | 2026-08-06-courthouse-sweep | dbf99dc | 6 variants chasing upstream's default horizon: kvsw 48/64 at `--stride 2`; `lingbot-map-long` at kvsw 24; windowed ws=48 overlap_kf=8 | — | **every one OOM** at the 6.80 GiB cap | **kvsw ≈ 24 is this box's hard ceiling, independent of sequence length** — halving to 143 frames did not buy kvsw 48. `lingbot-map-long` cannot run 286 frames at all. Upstream's published courthouse demo is simply unreachable on 8 GB; courthouse abandoned |

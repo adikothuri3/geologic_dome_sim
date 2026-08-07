@@ -1,6 +1,6 @@
 ---
 title: Open questions & hard problems
-updated: 2026-08-06
+updated: 2026-08-07
 status: current
 ---
 
@@ -84,7 +84,7 @@ this project has been able to run.
 
 ## Sim can't model snow physics
 
-MuJoCo contacts are rigid — no sinkage, no compliance. This is a scope boundary, not a bug: the pipeline targets *geometry* (rocks, slopes, steps); GenTe-style force modeling is explicitly future work. **Open:** whether `solref`/`solimp` tuning can fake enough compliance to be worth doing.
+Isaac Sim's PhysX rigid-body contacts have no sinkage or compliance — same scope boundary the legacy MuJoCo track had. The pipeline targets *geometry* (rocks, slopes, steps); GenTe-style force modeling is explicitly future work. The team's stated mitigation is **domain randomization over snow/ice friction and wind gusts** (`EventManager` terms), not soft contacts. Isaac does ship deformable/particle simulation, but it is out of scope for locomotion training at our env counts. (Legacy: the MuJoCo-side question — whether `solref`/`solimp` tuning could fake compliance — was never run.) **Open:** whether friction-range DR alone transfers to real snow, and what friction range even represents ice-glazed rock vs powder.
 
 ## Overfitting to reconstruction artifacts
 
@@ -131,9 +131,9 @@ The 8 GB ceiling on `kv_cache_sliding_window` is still real and still bounds wha
 
 **Answered 2026-08-06** by `colab/lingbot_map_colab.ipynb` on an A100 80 GB — see the warning above. Neither quantity is the lever. What remains genuinely open is whether a bigger cache helps on footage that is *inside* the model's sampling regime, which courthouse never was; the room-map clip at 49 s and 132 s is the honest test and has not been run on a big card.
 
-## 8 GB VRAM ceiling
+## Below Isaac's minimum spec on both axes
 
-LingBot-Map's KV cache and MJX's env count both eat VRAM ([[setup]] has the per-workload tactics). **Open:** whether Phase 5 per-iteration debugging genuinely fits locally, and the cloud-GPU budget/choice for sweeps and the expedition window.
+This box is 8 GB VRAM / 16 GB RAM against Isaac Sim's official 16/32 minimum — and LingBot-Map's KV cache eats the same 8 GB ([[setup]] has the per-workload tactics). The working split is headless low-env smoke tests locally, real training on cloud. **Open:** whether the headless SimulationApp even opens reliably in 16 GB system RAM; what local `num_envs` ceiling the G1 velocity task actually has on 8 GB; and the cloud-GPU budget/provider choice for Phase 4a/5 runs and the expedition window.
 
 ## Closed loop on the expedition
 

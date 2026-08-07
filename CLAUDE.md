@@ -1,10 +1,12 @@
 # GeologicDome — Robot Everest 2026 real2sim2real pipeline
 
-Everest footage → LingBot-Map reconstruction → Open3D → MuJoCo/MJX terrain → fine-tuned Unitree G1 policy → DimOS.
+Everest footage → LingBot-Map reconstruction → Open3D → **Isaac Sim terrain** → RL-trained Unitree G1 policy (Isaac Lab) → DimOS.
+
+**Pivoted 2026-08-07:** the primary simulator is now **Isaac Sim / Isaac Lab** (`sims/isaac/`), mirroring the Robot Everest team's real stack. MuJoCo/MJX carried Phases 1–2 and lives on as working legacy + the 50 Hz sim2sim validator in `sims/mujoco/`. Rationale: the 2026-08-07 entry in `notes/decisions.md`.
 
 ## Start here
 
-**Read `notes/overview.md` first on every cold start.** Before any nontrivial task, read all of `notes/` — it's nine short files, flat, and written to be readable standalone in under 5 minutes each.
+**Read `notes/overview.md` first on every cold start.** Before any nontrivial task, read all of `notes/` — it's ten short files, flat, and written to be readable standalone in under 5 minutes each.
 
 ## The vault (`notes/`)
 

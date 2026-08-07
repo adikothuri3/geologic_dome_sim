@@ -15,21 +15,31 @@ The real→sim→real loop, stage by stage. Mission context and schedule live in
 | 1 | Capture | Pemba walks the trek → RGB video @ 20–30 fps | Unitree G1 onboard camera (rules: [[capture-protocol]]) |
 | 2 | Reconstruction | Video → camera poses + dense point cloud, streaming frame-by-frame | LingBot-Map |
 | 3 | Cleanup | Point cloud → filtered, downsampled, scale-calibrated, ground-aligned cloud | Open3D |
-| 4 | Terrain build | Clean cloud → heightfield (`hfield`) and/or collision mesh in an MJCF scene | Open3D → MuJoCo |
-| 5 | Scene assembly | Terrain asset + `unitree_g1` model → simulated Pemba on reconstructed terrain | MuJoCo + Menagerie |
-| 6 | RL fine-tuning | Baseline joystick policy → policy fine-tuned on *that* terrain, with terrain + domain randomization | MuJoCo Playground / MJX |
-| 7 | Validation | ONNX policy export → sim2sim check in vanilla MuJoCo at 50 Hz | MuJoCo |
+| 4 | Terrain build | Clean cloud → mesh (Open3D) → OBJ → USD collision asset (PLY is not accepted — convert first) | Open3D → Isaac Lab `MeshConverter` (`triangleMesh`) |
+| 5 | Scene assembly | Terrain USD + `G1_CFG` (full collision) → simulated Pemba on reconstructed terrain | Isaac Lab `TerrainImporterCfg(terrain_type="usd")` + `isaaclab_assets` |
+| 6 | RL training | Baseline velocity policy → policy trained on *that* terrain, with terrain + domain randomization (friction/ice, mass, pushes as wind-gust proxy) | Isaac Lab + RSL-RL PPO, `EventManager` |
+| 7 | Validation | Policy export → sim2sim check in vanilla MuJoCo at 50 Hz — the legacy track's permanent job | MuJoCo (`sims/mujoco/`) |
 | 8 | Deployment | Validated policy / analytics → back to Pemba (or sim-validated recommendations to the team) | DimensionalOS |
+
+If LingBot-Map output proves unusable for a scene, stage 4 falls back to **procedural mountain
+terrain** (`TerrainGeneratorCfg` + `Hf*TerrainCfg` sub-terrains) — the loop from stage 5 on is
+unchanged. LingBot-Map is used only when it works; it is no longer on the critical path.
 
 ## The three core technologies
 
-### MuJoCo (+ MJX + Playground)
+### Isaac Sim + Isaac Lab (primary since 2026-08-07)
 
-DeepMind's open-source physics engine, the standard for legged-robot RL because its contact dynamics beat most GPU simulators. Scenes are MJCF (XML). **MJX** is MuJoCo rewritten in JAX so thousands of environments train in parallel on one GPU. **MuJoCo Playground** provides ready-made MJX RL environments including a Unitree G1 joystick-locomotion env with demonstrated sim-to-real transfer — we stand on this, we do not build G1 locomotion from scratch (see [[decisions]]).
+NVIDIA's GPU-native robotics simulator (PhysX, USD scene format) and its RL framework. This is the Robot Everest team's actual stack, which is why we pivoted to it (see [[decisions]], 2026-08-07). Pinned: **Isaac Sim 5.1.0 + Isaac Lab 2.3.x, Python 3.11, native Windows 11 via pip** — not Isaac Lab 3.0 beta (Ubuntu-only). Install and smoke ladder: `sims/isaac/README.md`.
 
-Things to master: bodies/joints/actuators, contacts & friction (`solref`/`solimp`), `hfield` and mesh terrain assets, cameras/sensors, domain randomization, the 50 Hz control-loop convention.
+What we stand on rather than build: `isaaclab_assets` ships **`G1_CFG`** (full-body collision — our Phase 2 requirement, built-in here) and the `Isaac-Velocity-Flat-G1-v0` / `Isaac-Velocity-Rough-G1-v0` tasks; `unitreerobotics/unitree_rl_lab` is Unitree's own Isaac Lab repo (RSL-RL, sim2real-tested G1 configs). Terrain comes in as USD (`TerrainImporterCfg`: `plane | generator | usd`), meshes convert via `MeshConverterCfg` (OBJ/STL/FBX — **not PLY**), and domain randomization runs through `EventManager` terms (`randomize_rigid_body_material`, `randomize_rigid_body_mass`, `push_by_setting_velocity`).
 
-Links: [mujoco](https://github.com/google-deepmind/mujoco) · [docs](https://mujoco.readthedocs.io) · [mujoco_menagerie](https://github.com/google-deepmind/mujoco_menagerie) (official `unitree_g1`) · [mujoco_playground](https://github.com/google-deepmind/mujoco_playground) (paper: arXiv 2502.08844)
+Things to master: USD composition, ArticulationCfg, the manager-based env (observations/rewards/events as config), TerrainGenerator curricula, RSL-RL's train/play loop, headless workflows.
+
+Links: [IsaacLab](https://github.com/isaac-sim/IsaacLab) · [Isaac Lab docs](https://isaac-sim.github.io/IsaacLab/main/) · [Isaac Sim docs](https://docs.isaacsim.omniverse.nvidia.com/) · [unitree_rl_lab](https://github.com/unitreerobotics/unitree_rl_lab)
+
+#### MuJoCo (+ MJX + Playground) — legacy + sim2sim validation
+
+DeepMind's physics engine carried Phases 1–2 (its contact dynamics are the reason stage 7 validates in it): full-body-collision G1, self-trained joystick policy, the whole Aug 6 video→terrain→standing-G1 chain. All of it stays runnable in `sims/mujoco/` — see `sims/mujoco/README.md` for gates and runtime. Reward terms and DR of the trained policy: [[locomotion-policy]].
 
 ### LingBot-Map
 
@@ -77,18 +87,25 @@ accurate whenever the sequence fits inside ~3,000 frames.
 
 Open-source, Python-first "agentic operating system" for robots — the framework the expedition actually runs. Modules (perception, SLAM, planners, motor control) communicate over typed pub/sub channels (`In[T]`/`Out[T]`); LLM agents are first-class modules; no ROS. Unitree support ships in the box: `uv pip install 'dimos[base,unitree]'`.
 
-Killer feature for this project: **replay datasets** — DimOS replays recorded robot sessions (camera + lidar + state) with no hardware, so the whole pipeline is developed against real robot data streams from a desk (`dimos --replay --replay-dir ...`). Phase 6 turns reconstruction into a live DimOS capability: Blueprint wiring replayed camera → LingBot-Map module → terrain-export module → saved MJCF asset. The DimOS MuJoCo backend lets retrained policies run inside the same framework.
+Killer feature for this project: **replay datasets** — DimOS replays recorded robot sessions (camera + lidar + state) with no hardware, so the whole pipeline is developed against real robot data streams from a desk (`dimos --replay --replay-dir ...`). Phase 6 turns reconstruction into a live DimOS capability: Blueprint wiring replayed camera → LingBot-Map module → terrain-export module → saved terrain asset (**USD** for Isaac, the primary target; MJCF export kept for the sim2sim validator). DimOS's MuJoCo backend still runs retrained policies inside the same framework for validation.
 
 Links: [dimos](https://github.com/dimensionalOS/dimos) (README + AGENTS.md first) · deepwiki.com/dimensionalOS/dimos
 
-## Terrain conversion: two paths, build both
+## Terrain conversion
 
-1. **Heightfield first** — grid XY at 5–10 cm cells, robust max-z per cell, fill holes → MuJoCo `hfield`. Fast and robust for walking terrain.
-2. **Mesh second** — Poisson / ball-pivoting surface reconstruction → decimate to <200k faces → static collision mesh. Needed for overhangs and large boulders. **Not built yet.**
+**Isaac path (primary, Phase 4b — to build):** clean metric cloud → Open3D surface
+reconstruction (Poisson / ball-pivoting) → decimate → **OBJ** → USD via `MeshConverterCfg`
+(`collision_approximation="triangleMesh"`). Fallback when a reconstruction isn't usable:
+procedural mountain terrain from `TerrainGeneratorCfg` sub-terrains. Converters land in
+`sims/isaac/terrain/`.
+
+**MuJoCo path (legacy, built and gated):** grid XY at 5–10 cm cells, robust max-z (or
+`--surface ground` indoors), fill holes → `hfield` (`sims/mujoco/terrain/cloud_to_hfield.py`).
+The mesh variant was never built.
 
 Scale calibration is mandatory before either path (monocular reconstruction has arbitrary scale): at home, film two markers a measured distance apart; on the expedition, use Pemba's known dimensions or GPS track length. See [[glossary]] for terms.
 
-### The chain, as it actually runs (Aug 6)
+### The legacy chain, as it actually ran (Aug 6, MuJoCo)
 
 ```bash
 recon/fetch_grandtour.py --mission eig-1 --out <run>   # benchmark footage + CPT7 GT (optional)
@@ -128,15 +145,27 @@ Three things this shipped that the plan did not anticipate:
 - **Unobserved cells are filled flat, not interpolated.** A walkthrough observes a corridor-shaped sliver of its bounding box (9% here). Nearest-fill smears walls across regions nobody looked at. The observation mask ships beside the asset.
 - **Smoothing is not cosmetic.** Monocular depth noise puts ~5 cm of roughness on flat carpet, which topples a keyframe-posed G1. `--smooth 2` (10 cm sigma) is what makes it stand; the sigma is recorded in the asset's JSON because it changes the terrain a policy sees.
 
-### Contact parameters (Phase 4, measured)
+The Isaac chain replaces the last three lines from stage 4b on; until it exists, this remains
+the only proven video→standing-robot path in the repo.
+
+### Contact parameters (measured — MuJoCo legacy)
 
 Terrain geom: `solref="0.008 1" solimp="0.9 0.95 0.001"`, `friction="1 0.005 0.0001"`, `condim="3"`, timestep 0.002 s.
 
 `solref` 0.008 is 4× the timestep and mixes with Menagerie's foot geoms to 0.014. Menagerie's ankle geoms carry their own `solref` (0.02) that wins on foot contacts, so a settled G1 sinks **0.3 mm on flat ground and ~5 mm where a foot corner loads a sloped 5 cm cell**. That is foot compliance, not terrain error — the gate in `sims/mujoco/scripts/settle_g1_recon.py` allows 10 mm and counts *terrain* contacts only.
 
-## Training recipe (Phase 5)
+## Training recipe (Phase 5, Isaac Lab)
 
-Curriculum: flat → gentle recon → full recon. **Terrain randomization**: generate variants of the reconstruction (noise, tilt, bump scale ±20%) so the policy generalizes around it instead of overfitting to its artifacts. **Domain randomization**: friction, base mass, motor strength, random pushes, sensor latency (real G1 command latency ≈ 18–30 ms — model it). **Evaluation harness**: success rate over N rollouts, mean distance before fall, velocity-tracking error — recon vs. flat, before vs. after. Numbers, not vibes; every run is a row in [[experiments]].
+Curriculum: flat → gentle terrain → full terrain (Isaac Lab's `TerrainGeneratorCfg` has
+curriculum + `difficulty_range` built in). **Terrain randomization**: sub-terrain variants
+(noise, tilt, bump scale ±20%) so the policy generalizes instead of overfitting to
+reconstruction artifacts. **Domain randomization** via `EventManager` terms: material
+friction/restitution (snow/ice), base mass, motor strength, `push_by_setting_velocity`
+(pushes + wind-gust proxy), sensor latency (real G1 command latency ≈ 18–30 ms — model it).
+**Evaluation harness**: success rate over N rollouts, mean distance before fall,
+velocity-tracking error — terrain vs. flat, before vs. after. Numbers, not vibes; every run
+is a row in [[experiments]]. Training compute: cloud GPU (see [[setup]] — local is smoke-test
+only).
 
 ## Reference literature
 

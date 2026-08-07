@@ -1,18 +1,24 @@
 ---
 title: The G1 locomotion policy — rewards, observations, randomization
-updated: 2026-08-04
+updated: 2026-08-07
 status: current
 ---
 
 # The G1 locomotion policy
 
-What Phase 2 actually trains, and what every part of it means. Everything here is read from
-the installed `mujoco_playground` G1 joystick environment, not from memory — re-derive with
-`scripts/check_phase2.py` and the sources under `~/src/playground/.../locomotion/g1/`.
+> [!important] Legacy reference (MuJoCo Playground, Phase 2)
+> This note documents the **Phase-2 MuJoCo/MJX joystick policy** — the sim was pivoted to
+> Isaac Lab on 2026-08-07 ([[decisions]]). It is kept because it is the record of what
+> Phases 1–2 trained, the vocabulary baseline for comparing Isaac Lab's G1 reward/obs
+> design, and the reference for the sim2sim validator in `sims/mujoco/`. The Isaac
+> equivalent gets documented here once the first Isaac policy trains (see the last section).
 
-The reward function is **upstream's, unmodified**. That is the [[decisions]] call from
+What Phase 2 actually trained, and what every part of it means. Everything here is read from
+the installed `mujoco_playground` G1 joystick environment, not from memory — re-derive with
+`sims/mujoco/scripts/check_phase2.py` and the sources under `~/src/playground/.../locomotion/g1/`.
+
+The reward function is **upstream's, unmodified**. That was the [[decisions]] call from
 2026-08-01: the novelty of this project is the terrain loop, not the locomotion baseline.
-Reward tuning belongs in Phase 5, against reconstructed terrain.
 
 ## The task
 
@@ -141,3 +147,22 @@ what the robot currently feels. The body is fixed; only the network changes.
 deriving `batch_size` so brax's `batch_size × num_minibatches == num_envs` relation is preserved
 and the gradient maths is identical to upstream — only parallelism shrinks. See [[setup]] for
 the VRAM budget and [[experiments]] for what each run actually produced.
+
+## Isaac Lab equivalent (Phase 4a — pending)
+
+The Isaac-side counterpart of everything above is **not yet trained**. When it is, this note
+gets its Isaac section (reward terms, obs space, DR events) read from the installed configs
+the same way. Starting points, researched 2026-08-07:
+
+- Tasks: `Isaac-Velocity-Flat-G1-v0` / `Isaac-Velocity-Rough-G1-v0` (manager-based velocity
+  tracking — the same task family as Playground's joystick env).
+- Asset: `isaaclab_assets` `G1_CFG` — full-body collision **built in**, which Phase 2 had to
+  generate by hand (`make_full_collision_xml.py`).
+- Reference configs: `unitreerobotics/unitree_rl_lab` (`Unitree-G1-29dof-Velocity`, RSL-RL,
+  sim2real-tested).
+- DR: `EventManager` terms replace Playground's `domain_randomize` vmap — material
+  friction/restitution, mass, `push_by_setting_velocity`.
+
+The trained MJX policy above stays useful as the **gait sanity baseline**: stride timing, duty
+factor and velocity-tracking error from `sims/mujoco/scripts/compare_gaits.py` give numbers an
+Isaac policy on flat ground should land near.

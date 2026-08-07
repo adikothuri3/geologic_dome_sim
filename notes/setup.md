@@ -1,5 +1,5 @@
 ---
-title: Machine setup — RTX 4060 Ti + WSL2
+title: Machine setup — RTX 4060 Ti (Windows-native Isaac + WSL2 legacy)
 updated: 2026-08-07
 status: current
 ---
@@ -8,6 +8,15 @@ status: current
 
 The dev box for the whole home-phase pipeline (see [[pipeline]]). One machine, 8 GB VRAM, everything else is tactics.
 
+## Isaac Sim / Isaac Lab (primary sim — pivoted 2026-08-07)
+
+**Status: scripted, not yet installed.** Run `sims/isaac/setup_isaac.ps1` when Phase 4 bring-up starts; `sims/isaac/README.md` holds the smoke ladder and version rationale.
+
+- **Pinned:** Isaac Sim **5.1.0** + Isaac Lab **v2.3.2**, **Python 3.11** (not 3.12), pip install with `--extra-index-url https://pypi.nvidia.com`. **Native Windows 11 — no WSL.** Do not use Isaac Lab 3.0 beta (Ubuntu-only).
+- **Venv:** `%USERPROFILE%\venvs\isaac` · **Isaac Lab clone:** `C:\Users\Aditya\src\IsaacLab`
+- **This box is below Isaac's official minimum** (8 GB VRAM vs 16; 16 GB RAM vs 32). Local work is headless smoke tests only (`--headless`, `num_envs` 64–256, close browsers first — the RTX renderer alone eats ~7 GB). **Real training runs go to a rented cloud GPU** (≥24 GB). If even the headless SimulationApp smoke fails on 16 GB RAM, that confirms cloud-first; it does not block anything else.
+- Training logs: `runs/isaac/<YYYY-MM-DD-slug>/`, one [[experiments]] row per run.
+
 ## Hardware & OS (verified 2026-08-02)
 
 - **GPU:** NVIDIA GeForce RTX 4060 Ti, **8 GB VRAM** (8188 MiB), driver 610.62
@@ -15,7 +24,7 @@ The dev box for the whole home-phase pipeline (see [[pipeline]]). One machine, 8
 - **OS:** Windows 11 Home 10.0.26200, UEFI
 - **Installed on Windows:** Python 3.12.8, git 2.55.0
 
-## WSL2 install state (2026-08-03) — complete
+## WSL2 install state (2026-08-03) — complete (legacy MuJoCo track + recon)
 
 SVM was off in firmware, which is why `wsl --install` did nothing for a while — Gigabyte
 ships B550 boards that way, and no OS-side workaround exists on consumer Gigabyte boards
@@ -223,7 +232,7 @@ The render probe tries `egl`, installs the NVIDIA EGL ICD at
 `/usr/share/glvnd/egl_vendor.d/10_nvidia.json` if glvnd can't find the WSL driver, then
 falls back to `osmesa`, persisting whichever works to `~/.bashrc`.
 
-## Phase 2 VRAM budget
+## Phase 2 VRAM budget (legacy MuJoCo track)
 
 **The usable budget is ~6 GB, not 8.** This GPU also drives the Windows desktop, which holds
 roughly 2 GB. JAX preallocates 75 % of total VRAM by default — 0.75 × 8188 MiB ≈ 6.0 GiB —
@@ -243,27 +252,28 @@ first, cloud second. Closing VS Code buys back most of a gigabyte.
 
 | Workload | Runs locally? | How |
 | --- | --- | --- |
-| MuJoCo (CPU physics + viewer) | Yes, easily | Core physics is CPU-based; GPU only helps rendering. Phases 1 and 4 fully local. |
+| **Isaac Sim / Isaac Lab (primary)** | Smoke tests only | Below official minimum (16 GB VRAM / 32 GB RAM). Headless, `num_envs` 64–256, load-and-step checks. Real training → cloud GPU. |
+| MuJoCo (CPU physics + viewer, legacy) | Yes, easily | Core physics is CPU-based; GPU only helps rendering. Phases 1 and 4 (legacy chain) fully local. |
 | LingBot-Map inference | Yes | Runs at 518×378. Control KV-cache growth with `keyframe_interval`, use windowed mode, filter by confidence. 8 GB handles trail-length clips; chunk very long videos. |
-| MJX / Playground RL training | Yes, with settings | Cut parallel envs (8192 → 1024–2048) and batch size; G1/Go1 joystick policies still train locally, just slower. Big Phase 5 sweeps → cloud GPU or Colab Pro. |
+| MJX / Playground RL training (legacy) | Yes, with settings | Cut parallel envs (8192 → 1024–2048) and batch size; G1 joystick policies still train locally, just slower. |
 | Open3D / point-cloud work | Yes, easily | Mostly CPU + light GPU. |
 | DimOS + replay datasets | Yes | Replay needs no hardware; agents/modules are CPU-light. |
 
-> [!warning] The two VRAM eaters
-> LingBot-Map's KV cache and the MJX parallel-env count are the two things that hit the 8 GB ceiling. Keyframe/windowed mode for recon; fewer envs for training; rent a cloud GPU for Phase 5 sweeps and during the expedition window. Whether 8 GB suffices end-to-end is an open question — see [[open-questions]].
+> [!warning] The VRAM eaters
+> LingBot-Map's KV cache, Isaac Sim's renderer + env count, and (legacy) the MJX parallel-env count are what hit the 8 GB ceiling. Keyframe/windowed mode for recon; headless + few envs for Isaac smoke tests; rent a cloud GPU for real Isaac training, Phase 5 sweeps, and during the expedition window. See [[open-questions]].
 
 ## Claude Code tooling (installed 2026-08-01)
 
 **MCP servers** — user scope (`claude mcp add -s user -t http …`), both verified connected via `claude mcp list`. Neither needs an API key or filesystem access.
 
-- **deepwiki** (`https://mcp.deepwiki.com/mcp`) — repo-level Q&A over the codebases this pipeline sits on: `dimensionalOS/dimos`, `google-deepmind/mujoco`, `mujoco_playground`, `mujoco_menagerie`, LingBot-Map, `isl-org/Open3D`.
-- **context7** (`https://mcp.context7.com/mcp`) — version-current API docs; query before writing code against `mujoco`, `mjx`, `jax`, `open3d`, or `onnx` APIs so calls aren't stale.
+- **deepwiki** (`https://mcp.deepwiki.com/mcp`) — repo-level Q&A over the codebases this pipeline sits on: `isaac-sim/IsaacLab`, `unitreerobotics/unitree_rl_lab`, `leggedrobotics/rsl_rl`, `dimensionalOS/dimos`, LingBot-Map, `isl-org/Open3D`, plus the legacy `google-deepmind/mujoco` / `mujoco_playground` / `mujoco_menagerie`.
+- **context7** (`https://mcp.context7.com/mcp`) — version-current API docs; query before writing code against `isaacsim`, `isaaclab`, `open3d`, `onnx`, or the legacy `mujoco`/`mjx`/`jax` APIs so calls aren't stale.
 
 **Custom skills** in `.claude/skills/` (project conventions, one page each — update them as conventions change):
 
-- `mjcf-terrain` — point cloud → hfield/mesh → MJCF, Phase 4 conventions (5–10 cm cells, robust max-z, hole filling, <200k faces, scale calibration, contact checks)
+- `mjcf-terrain` — **legacy MuJoCo track**: point cloud → hfield/mesh → MJCF, Phase 4 conventions (5–10 cm cells, robust max-z, hole filling, scale calibration, contact checks)
 - `open3d-cleanup` — outlier removal, voxel downsample, ground-plane alignment defaults
-- `training-run` — MJX fine-tune wrapper: 8 GB env-count limits, config + commit capture, mandatory [[experiments]] row
+- `training-run` — run discipline for **both sims**: commit-first, config capture, mandatory [[experiments]] row; Isaac local/cloud split + legacy MJX env-count limits
 - `lingbot-recon` — reconstruction defaults: `keyframe_interval`, windowed mode, confidence filtering, ≤10-min chunking
 
 `obsidian-markdown` (from kepano/obsidian-skills) keeps vault notes valid Obsidian-flavored markdown. The rest of that bundle (`obsidian-cli`, `obsidian-bases`, `json-canvas`, `defuddle`) was removed as unused — reinstall from the same repo if ever needed.
@@ -275,8 +285,8 @@ junction was a standing Windows/WSL git hazard. Previously rejected from the reg
 
 **Subagents** in `.claude/agents/` (added 2026-08-01, one page each — delegation targets for the main agent):
 
-- `docs-researcher` — read-only external-library lookups (mujoco, mjx, playground, dimos, lingbot-map, open3d) via deepwiki/context7/web; returns a sourced synthesis instead of doc dumps
-- `terrain-validator` — QA gate for real2sim terrain assets (scale, cell size, holes, face budget, MJCF load, G1 settle test, slope/roughness stats); writes reports under `reports/` only
+- `docs-researcher` — read-only external-library lookups (isaac sim/lab, rsl-rl, dimos, lingbot-map, open3d, legacy mujoco/mjx) via deepwiki/context7/web; returns a sourced synthesis instead of doc dumps
+- `terrain-validator` — QA gate for real2sim terrain assets in either sim (scale, cell size, holes, face budget, scene load, G1 settle test, slope/roughness stats); writes reports under `reports/` only
 - `run-auditor` — after every training/reconstruction run, parses logs and appends the mandatory [[experiments]] row; flags reward hacking, train/eval divergence, VRAM near the 8 GB ceiling
 - `vault-keeper` — keeps this vault synced with code changes at end of session; edits `notes/` only
 

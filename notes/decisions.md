@@ -1,6 +1,6 @@
 ---
 title: Decision log
-updated: 2026-08-05
+updated: 2026-08-07
 status: current
 ---
 
@@ -108,3 +108,11 @@ Append-only. Every entry: the choice, the reasoning, and the rejected alternativ
 **Choice:** `scripts/setup_lingbot.sh` installs into `~/venvs/lingbot`, not the shared `~/venvs/dome`.
 **Why:** Upstream pins torch 2.8.0/cu128; `~/venvs/dome` holds the `jax==0.9.2` pin that brax needs. One venv means two CUDA stacks negotiating over the same numpy, and a Phase 3 install could silently break the Phase 2 training environment. Same reasoning as the DimOS venv above, and it cost nothing — the two exchange PLY files, not live objects.
 **Consequence:** the viewer needs viser *and* Open3D, which live in different venvs; viser was added to `~/venvs/dome` (the one with Open3D) rather than Open3D to the recon venv, to keep the working inference environment untouched.
+
+## 2026-08-07 — Pivot the primary simulator to Isaac Sim / Isaac Lab; MuJoCo becomes working legacy
+
+**Choice:** From Phase 4 on, the primary simulator is **Isaac Sim 5.1.0 + Isaac Lab 2.3.x** (Python 3.11, pip install, native Windows 11 — no WSL), with RSL-RL for training. All MuJoCo/MJX/Playground code moves to `sims/mujoco/` and stays runnable; Phases 1–2 stand as delivered, and vanilla MuJoCo keeps the 50 Hz sim2sim-validation role in the pipeline's stage 7. This **supersedes the 2026-08-01 entry** that rejected "Isaac-family GPU simulators."
+**Why:** the Robot Everest team's actual stack is Isaac — their research doc's open-source track reads "Mapping the full Everest route using Lingbot-Map into IsaacSim, with domain randomization over snow, ice friction, and wind gust … dedicated RL locomotion policies on the route twin." MuJoCo was the onboarding stand-in, and this onboarding is meant to mirror the real deal. The 2026-08-01 entry's reasons were real (MuJoCo's contact fidelity, MJX parallelism) but matching the team's deliverable outweighs them — and Isaac brings its own leverage: built-in **full-collision `G1_CFG`** (what Phase 2 had to build by hand), ready-made `Isaac-Velocity-Flat/Rough-G1-v0` tasks, `unitreerobotics/unitree_rl_lab`, USD terrain import (`MeshConverter`, OBJ/STL/FBX), procedural terrain generation as a LingBot fallback, and `EventManager` domain randomization (friction/ice, mass, pushes as wind-gust proxy). A second forcing factor: LingBot-Map has been unreliable on this box (kvsw ≈ 24 ceiling, ~25 s drift horizon), so terrain now comes from LingBot **only if it works**, else stock/procedural mountain terrain — Isaac's generator makes that fallback first-class.
+**Compute:** this box (8 GB VRAM, 16 GB RAM) is below Isaac's official minimum (16/32). Local = headless smoke tests at 64–256 envs; real training on a rented cloud GPU. That split is the documented Isaac-community pattern, not an improvisation.
+**Rejected:** staying on MuJoCo (diverges from the team's route twin — the thing this onboarding exists to mirror); maintaining both sims as equal first-class tracks (double upkeep on a solo repo; MuJoCo instead keeps one job, sim2sim); Isaac Lab 3.0 beta (Ubuntu-only as of mid-2026); Isaac under WSL (native Windows is supported at these versions and WSL adds nothing but GPU-passthrough risk); deleting the MuJoCo code (it is the Phases 1–2 evidence and the stage-7 validator).
+**Consequence:** repo restructured into `sims/isaac/` (primary) + `sims/mujoco/` (legacy) with sim-agnostic `recon/` feeding both; the vendored third-party mujoco skill and its junction removed; `runs/` gains per-sim subdirs (`runs/mujoco/`, `runs/isaac/`) going forward. See [[overview]] for the re-targeted milestones and `sims/isaac/README.md` for the bring-up plan.

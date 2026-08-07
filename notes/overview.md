@@ -1,12 +1,19 @@
 ---
 title: Robot Everest 2026 — Overview
-updated: 2026-08-06
+updated: 2026-08-07
 status: current
 ---
 
 # Overview
 
-**Mission:** build and validate a pipeline that takes camera footage from Pemba (a Unitree G1 humanoid) on the Everest trek, reconstructs the terrain in 3D with LingBot-Map, converts the reconstruction into a MuJoCo simulation, fine-tunes locomotion policies on the actual terrain the robot is facing, and feeds the improved behavior back through DimensionalOS. See [[pipeline]] for the architecture.
+**Mission:** build and validate a pipeline that takes camera footage from Pemba (a Unitree G1 humanoid) on the Everest trek, reconstructs the terrain in 3D with LingBot-Map, converts the reconstruction into an **Isaac Sim** simulation, trains locomotion policies on the actual terrain the robot is facing (Isaac Lab + RSL-RL), and feeds the improved behavior back through DimensionalOS. See [[pipeline]] for the architecture.
+
+> [!important] Simulator pivot, 2026-08-07
+> The primary simulator is now **Isaac Sim / Isaac Lab** (`sims/isaac/`) — the Robot Everest
+> team's actual stack ("Mapping the full Everest route using Lingbot-Map into IsaacSim, with
+> domain randomization over snow, ice friction, and wind gust"). MuJoCo was the onboarding
+> stand-in: it carried Phases 1–2 and stays runnable in `sims/mujoco/` as the 50 Hz sim2sim
+> validator. Full rationale and rejected alternatives: the 2026-08-07 entry in [[decisions]].
 
 **Why it matters:** nobody has closed the real2sim2real loop on a live expedition, on natural high-altitude terrain, with a *streaming* (not offline) reconstruction model. Existing work (DISCOVERSE, RL-GSBridge, Scalable Real2Sim) is almost entirely indoor manipulation. This is outdoor legged locomotion, and the whole pipeline gets built at home before the team leaves for Kathmandu.
 
@@ -18,12 +25,17 @@ status: current
 - Commitment: ~12–15 hrs/week; every phase ends in a demo, not a slide deck
 
 > [!info] Current phase
-> **Phase 3 — LingBot-Map reconstruction** (due Aug 23, 2026). Phases 1 and 2 both landed
-> early: Phase 1 on Aug 2, Phase 2 on Aug 4 with a self-trained joystick policy walking and
-> turning under command on a full-body-collision G1 — see [[locomotion-policy]] for every
-> reward term and [[experiments]] for the runs.
+> **Phase 4 — Isaac Sim bring-up** (re-targeted Aug 7): install Isaac Sim/Isaac Lab
+> (`sims/isaac/setup_isaac.ps1`), run the smoke ladder, train a full-body-collision G1 on a
+> flat plane, then import terrain — LingBot-Map recon if it proves usable, stock/procedural
+> mountain terrain otherwise. Phase 3 (LingBot-Map) continues in parallel and is used
+> **only if it works**; it is no longer on the critical path.
 >
-> **The whole chain runs end to end** (Aug 6): video → cloud → scale → cleanup → MuJoCo
+> Phases 1 and 2 both landed early in MuJoCo: Phase 1 on Aug 2, Phase 2 on Aug 4 with a
+> self-trained joystick policy walking and turning under command on a full-body-collision
+> G1 — see [[locomotion-policy]] for every reward term and [[experiments]] for the runs.
+>
+> **The whole MuJoCo chain runs end to end** (Aug 6): video → cloud → scale → cleanup →
 > heightfield → G1 standing on it, every stage gated. Proven on upstream's `example/loop`
 > office walkthrough: 4.07M points → 964k cleaned and metric → a 572×357 hfield at 5 cm,
 > with the G1 settling on it at 0.3 mm foot penetration. Commands in [[pipeline]].
@@ -44,12 +56,12 @@ status: current
 
 | Due | Phase | Demo | Status |
 | --- | --- | --- | --- |
-| Aug 9 | 1 — MuJoCo fluency | G1 standing on a numpy-generated heightfield, rendered as video | **done** (Aug 2) |
-| Aug 16 | 2 — First locomotion policy | Self-trained joystick policy walking, every reward term explained | **done** (Aug 4) |
-| Aug 23 | 3 — LingBot-Map reconstruction | Phone video → dense point cloud of a local trail, camera trajectory overlaid | **toolchain done** (Aug 5); **demonstrated on outdoor trail footage with ground truth** (Aug 6, GrandTour EIG-1); own footage outstanding |
-| Aug 30 | 4 — Real2Sim terrain | G1 walking (Phase 2 policy) on MuJoCo terrain built from own footage — hackathon demo Aug 29 | **chain done** (Aug 6) on upstream footage — G1 *stands*; walking + own footage outstanding |
-| Sept 13 | 5 — Sim2Real training loop | Fine-tuned policy beats baseline on recon terrain, with metrics table | not started |
-| Sept 27 | 6 — DimOS integration | One command: replayed robot session → MuJoCo-ready terrain file | not started |
+| Aug 9 | 1 — MuJoCo fluency | G1 standing on a numpy-generated heightfield, rendered as video | **done** (Aug 2, MuJoCo) |
+| Aug 16 | 2 — First locomotion policy | Self-trained joystick policy walking, every reward term explained | **done** (Aug 4, MuJoCo/MJX) |
+| Aug 23 | 3 — LingBot-Map reconstruction | Phone video → dense point cloud of a local trail, camera trajectory overlaid | **toolchain done** (Aug 5); **demonstrated on outdoor trail footage with ground truth** (Aug 6, GrandTour EIG-1); used going forward **only if it works** — no longer on the critical path |
+| Aug 30 | 4 — Isaac Sim real2sim terrain | **4a:** full-body-collision G1 trained on a flat plane in Isaac Lab (headless local smoke, cloud for the real run). **4b:** terrain imported — LingBot recon mesh via MeshConverter if usable, else stock/procedural mountain terrain. Hackathon demo Aug 29 | **re-targeted to Isaac** (Aug 7). MuJoCo chain done Aug 6 (G1 *stands* on recon terrain), recorded in `sims/mujoco/` |
+| Sept 13 | 5 — Sim2Real training loop | Fine-tuned policy beats baseline on (recon or mountain) terrain in Isaac Lab, with metrics table | not started |
+| Sept 27 | 6 — DimOS integration | One command: replayed robot session → Isaac-ready terrain asset (USD) | not started |
 | Oct 5–20 | 7 — Live expedition pipeline | Daily recon + terrain analytics from Pemba's Everest footage | not started |
 | Nov | Final | Public repo + write-up: "A streaming real2sim2real pipeline from the Everest trek" | not started |
 
