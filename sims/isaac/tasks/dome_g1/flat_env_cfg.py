@@ -38,6 +38,8 @@ import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from isaaclab_tasks.manager_based.locomotion.velocity.config.g1.agents.rsl_rl_ppo_cfg import (
     G1FlatPPORunnerCfg,
 )
+
+from . import mdp as dome_mdp
 from isaaclab_tasks.manager_based.locomotion.velocity.config.g1.flat_env_cfg import (
     G1FlatEnvCfg,
 )
@@ -229,6 +231,15 @@ class G1FullCollisionFlatDREnvCfg(G1FullCollisionFlatEnvCfg):
         # offers all-or-nothing standing envs; 5% is the closest single knob. Uniform
         # sampling already supplies near-zero commands in every channel.
         self.commands.base_velocity.rel_standing_envs = 0.05
+
+        # -- the stepping reward has to know about yaw -----------------------------
+        # Upstream gates feet_air_time on the LINEAR command norm, so a commanded turn
+        # earns nothing for stepping. That is right for upstream, whose yaw command is a
+        # decaying heading correction, and wrong here, where yaw is commanded directly
+        # and persistently: run 2026-08-08-isaac-g1fc-flat-dr-4096 collected the whole
+        # yaw reward by pivoting on the spot and never learned to translate at all.
+        # `.func` only — weight, params and the rest of the term stay upstream's.
+        self.rewards.feet_air_time.func = dome_mdp.feet_air_time_joystick
 
         # -- observation noise: Playground's magnitudes ----------------------------
         # lin_vel ±0.1, ang_vel ±0.2, gravity ±0.05 and joint_vel ±1.5 already match
