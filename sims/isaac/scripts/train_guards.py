@@ -155,6 +155,28 @@ class DomeOnPolicyRunner(OnPolicyRunner):
         self._last_record: dict | None = None
         self._t0 = time.time()
 
+        # -- carry the previous attempt's best across a resume ----------------------
+        # Without this the best is forgotten on every restart, and the first improvement
+        # after the warmup overwrites model_best.pt with whatever the resumed run happens
+        # to find -- which is typically WORSE, since PPO dips on restart. On Colab that is
+        # not an edge case: every disconnect resumes, so best-checkpoint tracking would be
+        # defeated in exactly the environment it was built for. `_best_gated` is restored
+        # too, so a run that has already learned to step cannot have its best replaced by
+        # a non-stepping iteration.
+        if self._best_path.exists() and self._best_ckpt.exists():
+            try:
+                prior = json.loads(self._best_path.read_text(encoding="utf-8"))
+                self._best_score = float(prior["best_walk_score"])
+                self._best_gated = bool(prior.get("gated", False))
+                self._best_record = prior
+                self.report(f"guards: carrying best walk_score {self._best_score:.4f} from "
+                            f"iteration {prior.get('best_iteration')} "
+                            f"(gated={self._best_gated})")
+            except (ValueError, KeyError, TypeError) as exc:
+                # A truncated best.json is a reason to start tracking afresh, not to refuse
+                # to train -- the checkpoints themselves are untouched either way.
+                self.report(f"guards: ignoring unreadable best.json ({exc})")
+
     # -- the one overridden method -----------------------------------------------------
 
     def log(self, locs: dict, width: int = 80, pad: int = 35) -> None:
@@ -309,7 +331,14 @@ class DomeOnPolicyRunner(OnPolicyRunner):
     # -- what the trainer reports ------------------------------------------------------
 
     def guard_summary(self) -> dict:
-        """Everything the experiments.md row needs. Safe to call after an abort."""
+        """Everything the experiments.md row needs. Safe to call after an abort.
+
+        Returns `{}` rather than raising if `configure_guards()` never ran. The trainer
+        calls this from its `except` handlers, so an AttributeError here would replace the
+        real exception with a confusing one and cost the run its honest experiments row.
+        """
+        if not hasattr(self, "_best_path"):
+            return {}
         self._write_best()
         last = self._last_record or {}
         best = self._best_record or {}

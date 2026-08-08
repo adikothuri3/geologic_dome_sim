@@ -1,21 +1,22 @@
 """Phase 4a: train the full-body-collision G1 to follow velocity commands, in Isaac Lab.
 
     python sims/isaac/scripts/train_g1_flat.py --smoke        # 10 iterations, proves the loop
-    python sims/isaac/scripts/train_g1_flat.py                # local run (small; real runs -> cloud)
+    python sims/isaac/scripts/train_g1_flat.py                # 4096 envs x 3000 iterations
+    python sims/isaac/scripts/train_g1_flat.py --variant heading    # the positive control
     python sims/isaac/scripts/train_g1_flat.py --variant baseline   # the no-DR A/B control
 
-    # the real run -- a rented GPU with >=24 GB, see "Cloud" below
-    python sims/isaac/scripts/train_g1_flat.py --num_envs 4096 --max_iterations 1500
+    # the action_rate lever, if the stepping reward stays flat
+    python sims/isaac/scripts/train_g1_flat.py --reward-scale action_rate_l2=-0.001
 
     # continue an interrupted run to the same absolute iteration target
-    python sims/isaac/scripts/train_g1_flat.py --resume runs/isaac/<run_id> --max_iterations 1500
+    python sims/isaac/scripts/train_g1_flat.py --resume runs/isaac/<run_id> --max_iterations 3000
 
 Implements the `training-run` skill's non-negotiables:
   * the code that runs must be committed; the short hash is recorded
   * config captured alongside checkpoints (config.json in the run dir)
   * one row appended to notes/experiments.md afterwards -- success OR failure
-  * hardware limits respected: this box is below Isaac's minimum spec, so the local
-    default is num_envs=256 headless; anything bigger belongs on a cloud GPU.
+  * always headless: the RTX renderer is the one thing the 8 GB dev box cannot fit.
+    The default 4096 envs is upstream's own count and takes 5.05 GB (see Sizing below).
 
 Tasks (sims/isaac/tasks/dome_g1) -- all are upstream's flat velocity task with G1_CFG
 (full collision) swapped in for G1_MINIMAL_CFG:
@@ -241,6 +242,20 @@ if resume_ckpt and not args.run_name:
     # by the "resumed from iteration N" it carries.
     slug += "-resumed"
 run_id = f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}-isaac-{slug}"
+
+# `--resume <dir>` together with `--run_name` means "continue THAT run", so take the
+# directory's own identity rather than minting one from today's date. Without this a run
+# that crosses UTC midnight — entirely ordinary when three 3-hour runs are queued — resumes
+# from yesterday's checkpoint into a *new* directory named for today: progress.jsonl splits
+# across two places and the guards find no best.json to carry, silently losing the best
+# policy at exactly the moment the resume machinery exists to protect it.
+_resume_dir = pathlib.Path(args.resume) if args.resume else None
+if _resume_dir is not None and not _resume_dir.is_absolute():
+    _resume_dir = REPO / _resume_dir
+if args.run_name and _resume_dir is not None and _resume_dir.is_dir():
+    run_id = _resume_dir.name
+    print(f"resuming into the existing run directory {run_id}", file=sys.stderr)
+
 run_dir = RUNS / run_id
 run_dir.mkdir(parents=True, exist_ok=True)
 # A resumed attempt lands in the same directory, so last attempt's verdict has to go before
@@ -316,6 +331,8 @@ config = {
 }
 (run_dir / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
 
+abort_reason: str | None = None   # set by the CollapseAbort handler; read by write_row
+
 DR_BLURB = ("**DR on** (friction, link+torso mass, CoM, armature, ±0.05 rad pose, "
             "pushes 5–10 s)")
 VARIANT_BLURB = {
@@ -382,10 +399,18 @@ def write_row(status: str, metrics_txt: str, summary: dict | None = None) -> Non
     if args.smoke:
         took = "smoke test only, not a usable policy"
     elif status == "collapsed":
-        took = ("**negative result, not a crash** — the stepping reward never lifted, so "
-                "this reward configuration does not produce locomotion at any sample count. "
-                "Next lever: `--reward-scale action_rate_l2=-0.001`, paying gait smoothness "
-                "for locomotion (notes/decisions.md, 2026-08-08)")
+        # The watchdog has two reasons and they are not the same finding. Reporting a NaN
+        # as "this reward configuration does not produce locomotion" would put a false
+        # conclusion in a log whose rows are never deleted.
+        if abort_reason == "nan":
+            took = ("**numerically diverged, not a reward finding** — losses or mean reward "
+                    "went non-finite, so this run says nothing about the task. Re-run; if it "
+                    "recurs, suspect the reward overrides or a bad checkpoint resume")
+        else:
+            took = ("**negative result, not a crash** — the stepping reward never lifted, so "
+                    "this reward configuration does not produce locomotion at any sample "
+                    "count. Next lever: `--reward-scale action_rate_l2=-0.001`, paying gait "
+                    "smoothness for locomotion (notes/decisions.md, 2026-08-08)")
     elif status != "ok":
         took = metrics_txt
     elif summary.get("walked"):
@@ -461,6 +486,7 @@ except CollapseAbort as e:
     # Recording it as FAILED would bury a result among crashes.
     minutes = (time.time() - t_train) / 60
     summary = runner.guard_summary() if runner is not None else {}
+    abort_reason = e.reason
     metrics_txt = (f"**aborted by the {e.reason} watchdog** at iteration {e.iteration} "
                    f"({minutes:.0f} min): {e.detail}")
     status = "collapsed"
