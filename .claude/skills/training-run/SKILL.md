@@ -25,12 +25,25 @@ Wraps any training run in either sim. Non-negotiables, both tracks: hardware lim
 
 ## Isaac Lab (primary track)
 
-- **This box is below Isaac's minimum spec** (8 GB VRAM vs 16; 16 GB RAM vs 32). Local runs are
-  smoke tests only: always `--headless`, `num_envs` **64–256**, short `--max_iterations`.
-  Anything meant to produce a policy goes to a **cloud GPU** (≥24 GB).
-- Logs and checkpoints under `runs/isaac/<YYYY-MM-DD-slug>/`.
-- Tasks: `Isaac-Velocity-Flat-G1-v0` / `Isaac-Velocity-Rough-G1-v0`, RSL-RL runner; configs and
-  overrides live in `sims/isaac/tasks/`. See `sims/isaac/README.md` for the smoke ladder.
+- **`num_envs` 4096 is the default, and it fits on this box.** Measured 2026-08-08: 5.05 GB of
+  8.00 at ~3.7 s/iteration, because the G1 USD is instanced so what scales is PhysX state, not
+  geometry. The previous rule here said "local runs are smoke tests only, 64–256 envs" — that
+  was a guess, **wrong by 16×**, and it cost a training run 9.2M samples against upstream's
+  147M. See `notes/setup.md`.
+- **Always `--headless`.** The RTX renderer is the thing that genuinely does not fit — it alone
+  eats ~7 GB, and `play_g1_flat.py --video` crashes this card. Video and multi-run sweeps go to
+  a **cloud GPU**: `colab/isaac_g1_flat_colab.ipynb` (L4, not A100) or a rented ≥24 GB box.
+- **Read the reward terms, not mean reward.** On the velocity task mean reward rose −30 → +4.11
+  across a run in which the robot never took a step. `feet_air_time` and `track_lin_vel_xy_exp`
+  are the progress signals; `track_lin_vel_xy_exp` at 0.37 is what standing still scores.
+- Logs and checkpoints under `runs/isaac/<YYYY-MM-DD-slug>/`, alongside `progress.jsonl`,
+  `best.json` + `model_best.pt`, and `outcome.json` — read `outcome.json` for a run's verdict,
+  never the exit code, which Kit forces to 0 on shutdown.
+- Tasks: the **`Dome-G1FullCollision-*`** family in `sims/isaac/tasks/dome_g1/` (full-collision
+  `G1_CFG`, our DR set), not the stock `Isaac-Velocity-*-G1-v0`, which use `G1_MINIMAL_CFG`
+  with collision meshes stripped and randomize nothing but observations. RSL-RL runner. See
+  `sims/isaac/README.md` for the smoke ladder — and run `check_isaac.py --gate c` before any
+  DR run, because a task that randomizes nothing trains and logs exactly like one that does.
 - Phase 5: curriculum flat → gentle terrain → full terrain (TerrainGenerator curriculum);
   DR via EventManager terms. Validate via export → sim2sim in vanilla MuJoCo at 50 Hz
   (`sims/mujoco/`) before claiming a result.

@@ -65,7 +65,16 @@ it's wrong for this project. `sims/isaac/tasks/dome_g1/` registers three tasks, 
 | --- | --- |
 | `Dome-G1FullCollision-Flat-v0` | upstream's flat velocity config as-shipped. The **no-DR A/B control** |
 | `Dome-G1FullCollision-Flat-DR-v0` | **the Phase-4a training task** — velocity tracking under the Phase-2 randomization set |
+| `Dome-G1FullCollision-Flat-Heading-v0` | the same DR physics under **upstream's task definition** (heading-derived yaw, forward-only, upstream's `feet_air_time` gate). The **positive control**, added 2026-08-08 |
 | `Dome-G1FullCollision-Flat-DR-Play-v0` | 16 envs, clean sensors, no pushes — what `play_g1_flat.py` evaluates in |
+| `Dome-G1FullCollision-Flat-Heading-Play-v0` | the control's eval variant. `heading_command` is **off** here, so the eval harness's command pin actually holds and the control is scored on the same sweep as everything else |
+
+> [!note] The heading task is an instrument, not a candidate
+> A joystick policy whose yaw you cannot command directly is not the Phase-2 task and is not
+> what DimOS will drive — rejected on those grounds in `notes/decisions.md` and still rejected.
+> It exists so that "our task is hard" can be told apart from "our harness is broken": two
+> full-size runs have now failed to produce locomotion, and until upstream's own recipe is
+> shown to walk on this robot and this randomization, neither failure can be attributed.
 
 > [!warning] Upstream's G1 config randomizes almost nothing
 > `G1RoughEnvCfg.__post_init__` *disables* most of Isaac's own randomization:
@@ -132,10 +141,63 @@ What survives from the original plan:
   scenes add mesh collision on top of the articulation. It is no longer required to train a
   single flat-plane policy.
 
+### The guards (`scripts/train_guards.py`)
+
+`DomeOnPolicyRunner` is RSL-RL's `OnPolicyRunner` with `log()` overridden — nothing about PPO
+changes. It closes the two gaps the legacy MJX trainer did not have:
+
+| File | What it is |
+| --- | --- |
+| `progress.jsonl` | one JSON line per iteration, **appended**. An external kill and a Colab disconnect are both SIGKILL, which no `finally` block survives — that is how the 1,792-iteration run ended up with no experiments row at all. A line already on disk cannot be lost |
+| `best.json` + `model_best.pt` | the best checkpoint, MuJoCo parity. `play_g1_flat.py --checkpoint best` loads it |
+| `outcome.json` | the machine-readable verdict — `ok`, `collapsed` or `FAILED` — for an automated driver |
+
+> [!important] The best checkpoint is chosen by reward *terms*, never by mean reward
+> ```
+> walk_score = Episode_Reward/track_lin_vel_xy_exp + Episode_Reward/track_ang_vel_z_exp
+> gate       = Episode_Reward/feet_air_time >= 0.02
+> ```
+> Mean reward rose −30 → +4.11 across the whole of the failed 4096-env run, entirely on the
+> yaw term, while the robot never took a step. `best.json` carries `"gated": false` when the
+> run never stepped, so a non-walking policy cannot present itself as the run's best.
+
+`--abort-if-flat 500` (the default) automates the manual criterion below: if `feet_air_time`
+has not lifted above 0.02 anywhere in the trailing 200 iterations, the run stops itself. A
+provably dead run costs ~25 minutes instead of three hours.
+
+> [!warning] The exit code of these scripts is not under their control
+> Measured 2026-08-08: `raise SystemExit(3)` after `simulation_app.close()` exits **0**. Kit
+> owns process shutdown — the same reason `sys.exit("message")` raises `TypeError` inside a
+> running app. Anything automating these scripts must read `outcome.json`, not `$?`. A missing
+> `outcome.json` means the process never reached its own teardown, which is the case to retry.
+
+### Colab — `colab/isaac_g1_flat_colab.ipynb`
+
+Runs the whole Phase-4a experiment (all three variants, scored, with video) on a Colab GPU.
+It shells out to these same scripts unmodified, and clones the repo at a pinned ref rather
+than carrying its own copy.
+
+> [!warning] Select **L4**, not A100
+> NVIDIA lists GPUs without RT Cores (**A100, H100**) as unsupported for Isaac Sim 5.1.
+> Headless physics may still run there, but `--video` brings the offscreen RTX renderer up,
+> which is exactly the part that needs them. Colab has also been observed substituting L4 for
+> a requested A100, so the notebook's first cell checks what you actually got.
+
+Two things Colab needs that a rented box does not, both in `setup_colab_gpu.sh`:
+**Python 3.11** (Colab ships 3.12, for which no `isaacsim` wheel exists — pip then reports the
+package as unfindable, which reads like a typo) and the **Vulkan ICD / EGL vendor manifests**
+(Colab ships the driver libraries but not the JSON that tells the loaders where they are, so
+Kit finds no device). The ICD contents follow `j3soon/isaac-sim-colab`, the only documented
+working Isaac-on-Colab recipe — note it targets **4.5**, not our pinned 5.1, so treat the
+first run as unproven. The notebook's preflight cell is a hard gate on driver ≥ 580.65.06 and
+≥ 40 GB free, and names the fallback: a rented L40S/A10, where `setup_isaac_cloud.sh` runs
+unchanged.
+
 ### The cloud run
 
-A box with **≥24 GB VRAM** (Lambda / Brev / AWS; an A10, L40S or A100 all work). Isaac's own
-minimum is 16 GB, and the headroom matters because Phase 5 adds terrain mesh collision.
+A box with **≥24 GB VRAM** (Lambda / Brev / AWS; an A10 or L40S both work — prefer these over
+an A100 for the RT-core reason above). Isaac's own minimum is 16 GB, and the headroom matters
+because Phase 5 adds terrain mesh collision.
 
 ```bash
 git clone <repo> && cd GeologicDome
@@ -152,39 +214,55 @@ out of PhysX as spread *across environments*; it does not read the config back.
 $PY sims/isaac/scripts/check_isaac.py --gate c --num_envs 32
 ```
 
-**2 — Train.** 4096 envs × 1500 iterations is upstream's own recipe (147M samples).
+**2 — Train, all three variants.** 4096 envs × 3000 iterations is 295M samples, twice
+upstream's own flat recipe. The budget is generous because compute is no longer the
+constraint and "undertrained" has already been blamed once too often.
 
 ```bash
-$PY sims/isaac/scripts/train_g1_flat.py --num_envs 4096 --max_iterations 1500
+# A — the gate fix, the hypothesis under test
+$PY sims/isaac/scripts/train_g1_flat.py --num_envs 4096 --max_iterations 3000
+
+# C — the positive control: upstream's task on our randomized physics
+$PY sims/isaac/scripts/train_g1_flat.py --variant heading --num_envs 4096 --max_iterations 3000
+
+# B — the fallback lever, only interesting if A stays flat
+$PY sims/isaac/scripts/train_g1_flat.py --reward-scale action_rate_l2=-0.001 \
+    --num_envs 4096 --max_iterations 3000
 ```
 
-> [!warning] Watch `feet_air_time`, and kill the run early if it stays flat
-> This is the failure the 2026-08-08 local run hit, and it is invisible in mean reward —
-> which kept *rising* the whole time, on the yaw term, while the robot pivoted on the spot
-> and never took a step. The tell is one reward term:
+> [!warning] Watch `feet_air_time`, not mean reward
+> This is the failure the 2026-08-08 run hit, and it is invisible in mean reward — which kept
+> *rising* the whole time, on the yaw term, while the robot pivoted on the spot and never took
+> a step. The tell is one reward term:
 >
 > ```bash
-> grep "Episode_Reward/feet_air_time" nohup.out | tail -20
+> python -c "import json,sys; [print(json.loads(l)['iteration'], json.loads(l)['feet_air_time']) \
+>   for l in open('runs/isaac/<run_id>/progress.jsonl')][-20:]"
 > ```
 >
 > **Healthy:** climbing past ~0.05 by iteration 300–500 and still rising, with
-> `track_lin_vel_xy_exp` above 0.5.
+> `track_lin_vel_xy_exp` above 0.5 (standing still scores **0.37**).
 > **Dead:** pinned near 0.01 while `track_ang_vel_z_exp` climbs. In the failed run it sat at
-> ~0.01 from iteration 199 to 1599 — flat for 1,400 iterations. If you see that shape by
-> iteration ~500, kill it; more compute provably does not fix it (`notes/decisions.md`,
-> 2026-08-08).
+> ~0.01 from iteration 199 to 1599 — flat for 1,400 iterations.
+>
+> **`--abort-if-flat` now enforces this**, so you no longer have to watch: the run stops
+> itself and writes `outcome.json` with `"status": "collapsed"`. It is a *result*, not a
+> crash, and gets a normal experiments row saying which lever to pull next.
 >
 > `feet_air_time_joystick` in `tasks/dome_g1/mdp.py` is the fix for that failure and it is
-> **not yet validated** — this run is its first real test. If it *does* stay flat, the next
-> thing to try is `action_rate_l2` (it was the dominant term at −0.41), accepting that
-> lowering it trades gait smoothness for locomotion.
+> **not yet validated** — run A is its first real test.
 
 **3 — Score it, render it, plot it.**
 
 ```bash
-$PY sims/isaac/scripts/play_g1_flat.py runs/isaac/<run_id> --video
+$PY sims/isaac/scripts/play_g1_flat.py runs/isaac/<run_id> --checkpoint best --video
 $PY sims/isaac/scripts/plot_play.py    runs/isaac/<run_id>
 ```
+
+`--checkpoint best` loads `model_best.pt` rather than the last checkpoint; `--video` writes
+**one clip per command** into `<run_dir>/videos/` with an `index.json` mapping clip to command.
+The eval task is read from the run's own `config.json`, so the heading control is
+automatically scored in its own play variant.
 
 `play_metrics.json` + the terminal table give per-command tracking MAE, survival, and the two
 smoothness numbers; `--video` writes an mp4 of the sweep; `plot_play.py` writes
@@ -232,7 +310,8 @@ python sims/isaac/scripts/train_g1_flat.py --resume runs/isaac/<run_id> --max_it
 ## Layout
 
 - `scripts/` — `check_isaac.py` (smoke gates a/b/c), `train_g1_flat.py` (Phase 4a trainer),
-  `play_g1_flat.py` (rollout + velocity-tracking scorer)
+  `train_guards.py` (best-checkpoint tracking + the collapse/NaN watchdogs),
+  `play_g1_flat.py` (rollout + velocity-tracking scorer), `plot_play.py`
 - `tasks/dome_g1/` — the full-collision G1 task registrations + configs, including
   `DomeG1DREventCfg`, the domain-randomization set
 - `terrain/` — Phase 4b converters (cloud → OBJ → USD; procedural configs) — placeholder

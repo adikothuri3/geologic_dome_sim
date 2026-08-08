@@ -250,6 +250,80 @@ class G1FullCollisionFlatDREnvCfg(G1FullCollisionFlatEnvCfg):
 
 
 @configclass
+class G1FullCollisionFlatHeadingEnvCfg(G1FullCollisionFlatDREnvCfg):
+    """The positive control: upstream's *task definition* on our randomized physics.
+
+    Every deviation this project makes from upstream's velocity task is undone here — the
+    heading controller is restored, `lin_vel_x` goes back to forward-only, and the stepping
+    reward goes back to upstream's linear-only gate. What is deliberately NOT undone is
+    `DomeG1DREventCfg` or the raised joint-position observation noise, because those are the
+    constant across all three Phase-4a runs; the variables under test are the command
+    distribution and the `feet_air_time` gate, and nothing else may move with them.
+
+    Why a control run is worth the compute. Two full-size runs have failed to produce
+    locomotion (notes/experiments.md), and `feet_air_time_joystick` is a *hypothesis* about
+    why. If this task walks, the joystick command distribution is confirmed as what makes the
+    task hard — which is exactly the claim notes/decisions.md (2026-08-08) makes and has never
+    tested. If this task does **not** walk, the fault is somewhere neither hypothesis reaches
+    (the DR set, the full-collision robot, the harness) and both other runs are
+    uninterpretable, which is worth knowing before reading anything into them.
+
+    This is not a candidate policy. A joystick policy whose yaw cannot be commanded directly
+    is not the Phase-2 task and is not what DimOS will drive — rejected on those grounds in
+    notes/decisions.md and still rejected. It is an instrument.
+    """
+
+    def __post_init__(self):
+        super().__post_init__()
+
+        # -- upstream's stepping reward, restored -----------------------------------
+        # The DR parent swaps in `feet_air_time_joystick` (gate over all three commanded
+        # channels). Upstream's gates on the linear channels only, which is correct *here*:
+        # with a heading controller the yaw command decays to zero as the robot turns to
+        # face its target, so it is never a standing incentive.
+        self.rewards.feet_air_time.func = mdp.feet_air_time_positive_biped
+
+        # -- upstream's command distribution, restored ------------------------------
+        # Yaw is derived from a heading error rather than commanded, in every environment
+        # (rel_heading_envs = 1.0), so the sampled ang_vel_z range never reaches the robot.
+        self.commands.base_velocity.heading_command = True
+        self.commands.base_velocity.heading_control_stiffness = 0.5
+        self.commands.base_velocity.rel_heading_envs = 1.0
+        self.commands.base_velocity.ranges.heading = (-math.pi, math.pi)
+        # Forward-only, upstream's G1 flat range. The DR task widens this to (-1.0, 1.0)
+        # because a joystick policy that cannot walk backwards is not the Phase-2 policy;
+        # a control run is not the place to keep that correction.
+        self.commands.base_velocity.ranges.lin_vel_x = (0.0, 1.0)
+        self.commands.base_velocity.rel_standing_envs = 0.02
+
+
+@configclass
+class G1FullCollisionFlatHeadingPlayEnvCfg(G1FullCollisionFlatHeadingEnvCfg):
+    """Evaluation variant of the control, scored identically to the DR policy.
+
+    `heading_command` is turned **off** here even though training used it. The eval harness
+    (`play_g1_flat.py`) pins all three command channels every step to hold one behaviour for
+    a whole clip, and with the heading controller live `_update_command()` would overwrite
+    the yaw channel from a heading error on every step — the pin would silently not hold.
+    Turning it off makes the pin authoritative and, more importantly, scores this policy on
+    exactly the sweep the other two runs are scored on. The policy sees the command in the
+    same observation slot it always did; only where the number comes from changes.
+    """
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 16
+        self.scene.env_spacing = 2.5
+        self.episode_length_s = 20.0
+        self.observations.policy.enable_corruption = False
+        self.events.push_robot = None
+        self.commands.base_velocity.heading_command = False
+        self.commands.base_velocity.ranges.heading = None
+        self.commands.base_velocity.rel_standing_envs = 0.0
+        self.commands.base_velocity.resampling_time_range = (1.0e6, 1.0e6)
+
+
+@configclass
 class G1FullCollisionFlatDRPlayEnvCfg(G1FullCollisionFlatDREnvCfg):
     """Evaluation variant: a handful of envs, clean sensors, no pushes.
 
@@ -294,3 +368,12 @@ class DomeG1FlatDRPPORunnerCfg(G1FlatPPORunnerCfg):
     def __post_init__(self):
         super().__post_init__()
         self.experiment_name = "dome_g1fc_flat_dr"
+
+
+@configclass
+class DomeG1FlatHeadingPPORunnerCfg(G1FlatPPORunnerCfg):
+    """Same hyperparameters a third time — the control differs only in the task."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.experiment_name = "dome_g1fc_flat_heading"

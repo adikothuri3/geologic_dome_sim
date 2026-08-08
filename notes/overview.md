@@ -48,6 +48,16 @@ status: current
 > the whole way on the yaw term while the robot never stepped. See [[locomotion-policy]] for
 > status and [[decisions]] for the call.
 >
+> **The validation run is built and not yet run** (Aug 8). Three configurations at 4096 envs ×
+> 3000 iterations — the gate fix, an `action_rate_l2` fallback, and a **positive control** on
+> upstream's own task definition, without which neither candidate's failure could be
+> attributed. The trainer now carries the guards it should have had for the last two runs:
+> best-checkpoint tracking keyed on reward *terms* rather than mean reward, an append-only
+> `progress.jsonl` that survives the external kill which cost the last run its row, and a
+> watchdog that ends a flat run at iteration 500 instead of hour three. It runs in
+> `colab/isaac_g1_flat_colab.ipynb` — on Colab because the eval renderer, not the training,
+> is what the 8 GB card cannot do.
+>
 > **4b has its first terrain, and it is real** (Aug 8): the **Eiger Trail** — 5.4 km and
 > 713 m of descent under the Eiger north face, from the swisstopo swissALTI3D **0.5 m
 > survey DEM** (no reconstruction, so no scale ambiguity and no drift ceiling), straightened

@@ -38,7 +38,31 @@ The dev box for the whole home-phase pipeline (see [[pipeline]]). One machine, 8
 > **The cloud is still the answer for Phase 5**, where sweeps mean many runs at once and
 > terrain scenes add mesh collision on top — but it is no longer required to train one
 > flat-plane policy, and the [[experiments]] rows now say which was used.
-- Training logs: `runs/isaac/<YYYY-MM-DD-slug>/`, one [[experiments]] row per run (`sims/isaac/scripts/train_g1_flat.py` writes both).
+- Training logs: `runs/isaac/<YYYY-MM-DD-slug>/`, one [[experiments]] row per run (`sims/isaac/scripts/train_g1_flat.py` writes both), plus `progress.jsonl`, `best.json` + `model_best.pt` and `outcome.json` from the guards in `sims/isaac/scripts/train_guards.py`.
+
+### Isaac on Colab (added 2026-08-08) — `colab/isaac_g1_flat_colab.ipynb`
+
+The renderer is the reason, not the physics: 4096 envs train fine here (below), but
+`play_g1_flat.py --video` **crashes this card at 687 ms** bringing the offscreen RTX renderer
+up, so the video deliverable does not exist locally at all. Three sequential 3000-iteration
+runs is also ~9 h that should not own the dev box.
+
+What a Colab runtime needs that a rented Linux box does not — `sims/isaac/setup_colab_gpu.sh`,
+which runs *before* `setup_isaac_cloud.sh`:
+
+- **Python 3.11 via deadsnakes.** Colab ships 3.12 and there is no `isaacsim` wheel for it;
+  pip reports the package as unfindable, which reads like a typo rather than a version wall.
+- **Vulkan ICD + EGL vendor manifests.** Colab has the NVIDIA driver libraries but not the
+  JSON that tells the loaders where they are, so Kit finds no device. Contents follow
+  `j3soon/isaac-sim-colab` — which targets Isaac Sim **4.5**, not our pinned 5.1, so this
+  path is **unproven** until a run comes back. The script gates on `vulkaninfo`.
+- **`TMPDIR=/content/tmp`** — the pip install unpacks ~25 GB and the root volume is small.
+
+Requirements the notebook's preflight cell hard-gates on: driver **≥ 580.65.06** (Isaac Sim
+5.1's stated Linux minimum; Colab's driver cannot be upgraded from inside the runtime),
+**≥ 40 GB** free on `/content`, and **not an A100/H100** — NVIDIA lists GPUs without RT cores
+as unsupported, and the renderer is exactly the part that needs them. **Choose L4.** Fallback
+if the gate fails: a rented L40S/A10, where `setup_isaac_cloud.sh` runs unchanged.
 
 > [!warning] numpy is pinned to 1.26.0 — do not let anything upgrade it
 > `numba 0.59.1`, which `isaacsim-core` depends on, requires `numpy <1.27,>=1.22`.

@@ -244,9 +244,47 @@ than in tuning.
 > to all three channels. **That fix is committed and unvalidated**; a 150-iteration probe was
 > too short to discriminate and is logged as such rather than as evidence.
 >
-> Next: the cloud run in `sims/isaac/README.md` § The cloud run, which carries the abort
-> criterion — if `feet_air_time` is still flat by iteration ~500, the gate was not the cause
-> and `action_rate_l2` (dominant at −0.41) is the next suspect, at the cost of gait smoothness.
+> Next: the three-way experiment below. The abort criterion is no longer a thing to remember —
+> `train_g1_flat.py --abort-if-flat` enforces it.
+
+### How the next run is instrumented (2026-08-08)
+
+Two full-size failures produced one durable lesson about *measurement*, not about the policy:
+**mean reward is not a progress signal here.** It rose −30.4 → +4.11 across the whole failed
+run, on the yaw term alone, while the robot never took a step. `sims/isaac/scripts/train_guards.py`
+turns that lesson into code — an `OnPolicyRunner` subclass overriding `log()` only, so PPO is
+untouched:
+
+```
+walk_score = Episode_Reward/track_lin_vel_xy_exp + Episode_Reward/track_ang_vel_z_exp
+gate       = Episode_Reward/feet_air_time >= 0.02
+```
+
+| Artefact | What it is for |
+| --- | --- |
+| `progress.jsonl` | every reward term, per iteration, **appended**. An external kill is a SIGKILL and no `finally` block survives one — which is how the 1,792-iteration run ended up with no [[experiments]] row |
+| `best.json` + `model_best.pt` | the best *gated* iteration. `"gated": false` marks the best checkpoint of a run that never stepped, so it cannot be mistaken for a policy. `play_g1_flat.py --checkpoint best` loads it |
+| `outcome.json` | `ok` / `collapsed` / `FAILED`, because the exit code is not usable — Kit forces it to 0 on shutdown |
+| `--abort-if-flat 500` | stops a run whose stepping reward has not lifted anywhere in the trailing 200 iterations. ~25 minutes instead of three hours |
+
+Rationale and the rejected alternatives: [[decisions]], 2026-08-08.
+
+### The three-way experiment
+
+All at 4096 envs × 3000 iterations (295M samples, twice upstream's flat recipe), same DR set,
+same observation noise, same PPO. Run in `colab/isaac_g1_flat_colab.ipynb`.
+
+| Run | Task | The variable |
+| --- | --- | --- |
+| **A** | `Dome-G1FullCollision-Flat-DR-v0` | `feet_air_time_joystick` — the hypothesis |
+| **C** | `Dome-G1FullCollision-Flat-Heading-v0` | upstream's task definition, our physics — the **positive control** |
+| **B** | A + `--reward-scale action_rate_l2=-0.001` | the fallback lever, dominant at −0.41 |
+
+C is the one that makes the other two readable. If upstream's own recipe walks here, the
+joystick command distribution is confirmed as what makes this task hard; if it does not, the
+fault is in the DR set, the robot or the harness, and A and B cannot be interpreted at all.
+It is **not** a candidate policy — direct yaw control is the Phase-2 task and what DimOS will
+drive ([[decisions]], 2026-08-08).
 
 ### Comparing against the MuJoCo baseline
 

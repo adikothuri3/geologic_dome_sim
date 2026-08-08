@@ -1,6 +1,64 @@
-# `colab/` — running LingBot-Map on a rented GPU
+# `colab/` — running the heavy stages on a rented GPU
 
-One notebook: **`lingbot_map_colab.ipynb`**.
+Two notebooks:
+
+| Notebook | What it runs |
+| --- | --- |
+| **`isaac_g1_flat_colab.ipynb`** | Phase 4a — the full-collision G1 velocity policy in Isaac Lab, three variants, scored and rendered to video |
+| **`lingbot_map_colab.ipynb`** | Phase 3 — LingBot-Map reconstruction |
+
+Both follow the same rule: **shell out to unmodified repo scripts.** If a notebook forked the
+pipeline, a difference between cloud and local would not mean anything.
+
+---
+
+# `isaac_g1_flat_colab.ipynb` — Phase 4a training
+
+## Why it exists
+
+The Isaac policy does not walk yet. Two full-size runs are in `notes/experiments.md` and
+neither translates; the second, at upstream's own 4096 envs, learned to *turn on the spot*.
+`dome_g1/mdp.py::feet_air_time_joystick` is the diagnosed fix and is **committed and
+unvalidated**. This notebook validates it against a fallback lever and — the part that makes
+the result readable — a **positive control** running upstream's own task definition.
+
+The second reason is narrower and decisive: `play_g1_flat.py --video` **crashes the 8 GB dev
+card at 687 ms** bringing the RTX renderer up. Training fits locally; video does not. The
+video deliverable exists only here.
+
+## Using it
+
+1. **Runtime → Change runtime type → L4.** *Not* A100 — NVIDIA lists GPUs without RT cores as
+   unsupported for Isaac Sim 5.1, and the renderer is exactly the part that needs them. Colab
+   has been seen substituting L4 for a requested A100 anyway, so cell 1 checks what you got.
+2. Run top to bottom. Cell 1 is a hard gate (driver ≥ 580.65.06, ≥ 40 GB free, RT cores); the
+   install cell is ~25 GB and 20–40 minutes and is idempotent.
+3. The three training cells are independent — run, skip or re-run any of them. Each retries
+   with `--resume` on a disconnect, so a dropped session costs at most 25 iterations.
+
+**Nothing is uploaded**: the notebook `git clone`s this repo at a pinned `GIT_REF`, so the
+commit hash in every experiments row is real. Set `GH_TOKEN` in Colab Secrets if the repo is
+private.
+
+> **Honest status.** Nobody has published a working Isaac Sim **5.1** install on Colab; the one
+> documented recipe (`j3soon/isaac-sim-colab`, which the Vulkan plumbing follows) targets 4.5.
+> Treat the first run as unproven. The fallback is a rented L40S/A10, where
+> `sims/isaac/setup_isaac_cloud.sh` runs unchanged — see `sims/isaac/README.md`.
+
+## Bringing results back
+
+`runs/isaac/` is symlinked onto Drive, so checkpoints survive a reclaimed VM. The last cells
+embed the videos inline, print the `notes/experiments.md` rows and zip the results.
+
+The rows need care: the trainer appends them inside the Colab checkout, and the driver
+**harvests them and restores the file** after every attempt — otherwise run A's row would
+leave the tree dirty and the clean-tree gate would refuse to start run C. They accumulate in
+`MyDrive/GeologicDome/results/experiments_rows.md`; paste them into the real repo. **Rows are
+never deleted**, including the ones recording a run that did not walk.
+
+---
+
+# `lingbot_map_colab.ipynb` — Phase 3 reconstruction
 
 ## Why it exists
 
@@ -31,7 +89,7 @@ in the result would not mean anything.
 4. A printed verdict (compute-bound / not-compute / partial) and pasteable
    `notes/experiments.md` rows.
 
-## Using it
+## Using the LingBot notebook
 
 1. Upload the notebook to Colab. **Runtime → Change runtime type → A100 or L4.** A T4 works but
    drops to fp16 (`reconstruct.py` picks bf16 only on sm_80+), so two variables change at once and
