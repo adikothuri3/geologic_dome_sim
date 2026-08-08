@@ -16,7 +16,28 @@ The dev box for the whole home-phase pipeline (see [[pipeline]]). One machine, 8
 - **Venv:** `%USERPROFILE%\venvs\isaac` · **Isaac Lab clone:** `C:\Users\Aditya\src\IsaacLab` (tag v2.3.2)
 - **Also in the isaac venv** (2026-08-08, for the DEM terrain path): `tifffile==2024.8.30` + `imagecodecs==2024.6.1`, installed `--no-deps`. **Pin hazard:** current tifffile/imagecodecs releases require numpy≥2 and pip will happily upgrade numpy over isaacsim-kernel's `numpy==1.26.0` pin, breaking the whole stack (happened once, rolled back same day). Install anything into this venv with `--no-deps` or verify the resolver leaves numpy/typing-extensions alone.
 - Installer: `sims/isaac/setup_isaac.ps1` (idempotent). It installs the Isaac Lab source packages with **direct pip** — `isaaclab.bat --install` only detects conda or its bundled kit-python, not a plain venv — and pins **`tensordict==0.8.3`** (the latest wheel is built against a newer torch ABI and access-violates on import with torch 2.7.0).
-- **Measured on this box** (below Isaac's 16 GB VRAM / 32 GB RAM minimum): headless SimulationApp up in **~8 s**; full-collision G1 env (8 envs) builds in 26 s; 10 RSL-RL iterations at 64 envs run at **~690 steps/s**. So local headless smoke work is genuinely fine; **real training still goes to a rented cloud GPU** (≥24 GB) — never open the GUI viewport here.
+- **Measured on this box** (below Isaac's 16 GB VRAM / 32 GB RAM minimum): headless SimulationApp up in **~8 s**; full-collision G1 env (8 envs) builds in 26 s.
+
+> [!important] 4096 envs fits — this box trains full-size policies, headless
+> "256 envs is the local ceiling on 8 GB" was a **guess, and wrong by 16×**. Measured
+> 2026-08-08 with `check_isaac.py --gate b`, full-collision G1, headless:
+>
+> | envs | VRAM used | throughput |
+> | --- | --- | --- |
+> | 256 | 3.40 GB | 3,011 env-steps/s |
+> | 1024 | 3.77 GB | 10,856 |
+> | 2048 | 4.21 GB | 19,480 |
+> | **4096** | **5.05 GB** of 8.00 | **28,975** |
+>
+> VRAM grows sub-linearly (16× the envs costs 1.5× the memory) because the G1's USD is
+> instanced — what scales is PhysX state, not geometry. Upstream's own 4096-env config
+> therefore runs here with ~3 GB to spare, at **~3.7 s/iteration** under RSL-RL. Phase 4a
+> was trained locally on this basis. The renderer is still the thing that does not fit:
+> stay headless, and use `--video` only for short eval clips.
+>
+> **The cloud is still the answer for Phase 5**, where sweeps mean many runs at once and
+> terrain scenes add mesh collision on top — but it is no longer required to train one
+> flat-plane policy, and the [[experiments]] rows now say which was used.
 - Training logs: `runs/isaac/<YYYY-MM-DD-slug>/`, one [[experiments]] row per run (`sims/isaac/scripts/train_g1_flat.py` writes both).
 
 > [!warning] numpy is pinned to 1.26.0 — do not let anything upgrade it

@@ -101,21 +101,36 @@ ground is comparable against the Phase-2 MuJoCo baseline and not only against it
 ## This box vs. Isaac's minimums
 
 Official minimum is **16 GB VRAM / 32 GB RAM**; this machine has **8 GB VRAM / 16 GB RAM** —
-below spec on both. The working plan (decided 2026-08-07):
+below spec on both. The plan decided 2026-08-07 was "local = prototyping only, `num_envs`
+64–256; cloud = real training". **Half of that was wrong, and it cost a training run.**
 
-- **Local = prototyping only.** Always `--headless` (the RTX renderer alone eats ~7 GB),
-  `num_envs` 64–256, `--/app/content/emptyStageOnStart=true`, close browsers/VS Code first.
-  Local answers "does it load and step", not "train a policy".
-- **Cloud = real training.** Phase 4a/5 training runs go to a rented GPU (Lambda/Brev/AWS,
-  ≥24 GB VRAM). This is the documented normal path even for better-equipped boxes.
-- If smoke step (a) fails on 16 GB RAM, that is data for going cloud-first, not a blocker.
+Measured 2026-08-08 with `check_isaac.py --gate b`, full-collision G1, headless:
 
-That split is now **measured on this task, not assumed**. The 2026-08-08 local run at 256
-envs reached 100 % survival — falls 72 % → 0.4 %, episode length 15.7 → 1000 — with velocity
-tracking still at exactly zero: MAE equal to the command magnitude on every nonzero channel,
-0.02 on stand-still. That is a policy that has learned to stand and not yet to walk, which is
-the ordering a `−200` termination penalty buys. **256 envs × 1500 iterations is 9.2M samples
-against upstream's 147M at 4096** — 16× short. See the row in `notes/experiments.md`.
+| envs | VRAM used | throughput |
+| --- | --- | --- |
+| 256 | 3.40 GB | 3,011 env-steps/s |
+| 1024 | 3.77 GB | 10,856 |
+| 2048 | 4.21 GB | 19,480 |
+| **4096** | **5.05 GB** of 8.00 | **28,975** |
+
+VRAM grows sub-linearly — 16× the envs costs 1.5× the memory — because the G1's USD is
+instanced, so what scales with `num_envs` is PhysX state, not geometry. Upstream's own
+4096-env config runs here with ~3 GB to spare at ~3.7 s/iteration.
+
+Why it mattered: the first Phase-4a attempt honoured the 256-env guess, and 256 × 1500 is
+**9.2M samples against upstream's 147M** — 16× short. It reached 100 % survival with velocity
+tracking still at exactly zero (MAE equal to the command magnitude on every nonzero channel,
+0.02 on stand-still): a policy that had learned to stand and not to walk, which is the ordering
+a `−200` termination penalty buys. The same task at 4096 envs trains. Both rows are in
+`notes/experiments.md`.
+
+What survives from the original plan:
+
+- **Always `--headless`.** The RTX renderer is the thing that genuinely does not fit here —
+  it alone eats ~7 GB. Use `--video` for short eval clips only, never a viewport.
+- **Cloud is still right for Phase 5**, where sweeps mean several runs at once and terrain
+  scenes add mesh collision on top of the articulation. It is no longer required to train a
+  single flat-plane policy.
 
 ### The cloud run
 
