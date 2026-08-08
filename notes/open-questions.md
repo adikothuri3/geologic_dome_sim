@@ -1,6 +1,6 @@
 ---
 title: Open questions & hard problems
-updated: 2026-08-07
+updated: 2026-08-08
 status: current
 ---
 
@@ -74,13 +74,22 @@ What did survive is the stitching cost: 5 windows over 23 m, per-window **scale 
 an ATE-vs-distance curve that is a **sawtooth with humps at the window boundaries** (~4 / 11 /
 17.5 / 22 m against a boundary every 4.6 m). ATE 1.168 m over 23.0 m of path, 5.07%.
 
-That reframes the question. Window count is the lever, and there are two ways to cut it:
-`keyframe_interval` (costs keyframe spacing — the courthouse failure) and `window_size` (costs
-VRAM only). At 518×294 the fitted cost is `VRAM ≈ 3.15 + 0.128 × window_size` GB, so `ws=256`
-is ~36 GB — free on an 80 GB card, impossible on 8 GB. **Open:** whether raising `window_size`
-at constant keyframe density actually removes the sawtooth, which is sweep A in
-`lab-notebook/2026-W32.md` and is the first test of the paper's compounding-alignment claim
-this project has been able to run.
+**Answered at mission scale, in the wrong direction (2026-08-08, A100 sweeps A/B/C — see
+[[experiments]]).** On the *full* 429 s / 208 m EIG-1 mission, ATE RMSE sits at **22.4–22.9 m
+(≈11% of path) across every tested config**: `window_size` 64→256 (115→26 windows, sweep A),
+`keyframe_interval` 1→10 (54→6 windows, sweep B), and the paper's adaptive `--flow_threshold
+25.0` (sweep C). The reconstruction collapses to a ~10 m blob against a 60 m descent. Most
+telling: kfi=10 tamed the per-window scale span from 1144× to 8.6× and ATE did not move —
+so window-chaining scale decay is a symptom, and **no inference-time lever rescues a full
+mission**. The working conclusion stands and hardens: LingBot-Map is a **per-segment tool**
+(~25–30 s / ~25 m → ATE ≈ 1.2 m, 5%), and terrain must be built per-segment.
+
+**Still open:** the `lingbot-map-long` checkpoint was not run at mission scale (all ten sweeps
+used the base ckpt) — the one untested lever, though sweep B/C's config-invariance makes a
+rescue unlikely; whether an external pose prior from Pemba's odometry (the one signal the
+expedition has that GrandTour benchmarks simulate with CPT7) can anchor segments into one
+consistent route map; and where the usable segment-length ceiling actually is between 25 s
+(good) and 429 s (collapsed).
 
 ## Sim can't model snow physics
 

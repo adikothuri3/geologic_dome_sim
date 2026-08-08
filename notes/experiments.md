@@ -1,6 +1,6 @@
 ---
 title: Experiment log
-updated: 2026-08-07
+updated: 2026-08-08
 status: current
 ---
 
@@ -65,3 +65,6 @@ Columns: `run_id` (date + short slug), `commit` (short hash of the code that ran
 | 2026-08-06-eig1-local25-ate | 8daa412-dirty | `eval_ate.py` on the run above vs **CPT7 `ie_tc`** ground truth, Umeyama Sim(3), camera lever arm 0.417 m compensated | — | **ATE RMSE 1.168 m over 23.0 m (5.07%)**, median 0.984, max 2.745; RPE@5 m median 0.645 (12.9% drift); per-segment 0.87→1.70 m monotonic; **scale 5.4436 m/unit** | **first external ground truth in the project**, and the first scale anchored to a survey-grade reference rather than an assumed 1.5 m eye height. Error is a **sawtooth with humps at ~4/11/17.5/22 m** — 5 windows over 23 m puts a boundary every 4.6 m, so the paper's Sim(3)-fusion cost *is* the dominant error term and it is visible per-boundary |
 | 2026-08-07-g1-joystick-feet-only-2M-smoke | cdb1c5a | G1JoystickFlatTerrain, **feet-only**, PPO, bs=8, nmb=32, njmax=128, steps=2,000,000, seed=0 | 256 | final eval reward -3.16, best -3.16, 3 min | smoke test only, not a usable policy |
 | 2026-08-07-isaac-g1fc-flat-smoke | 4fbb1b6-dirty | Dome-G1FullCollision-Flat-v0, **full-collision G1_CFG**, RSL-RL PPO, iters=10, seed=0 | 64 | 10 iters, 0 min, final ckpt model_9.pt in runs/isaac/2026-08-07-isaac-g1fc-flat-smoke (curves: tensorboard --logdir runs/isaac/2026-08-07-isaac-g1fc-flat-smoke) | smoke test only, not a usable policy |
+| 2026-08-08-colab-eig1-sweepA-ws | 75bef42 | Colab A100, EIG-1 **full mission** (6417 fr / 429 s / 208 m GT path), VO windowed kfi=1 kvsw=64 nsf=8 `--mask_sky`, base ckpt, **ws ∈ {64, 128, 256}** (115/54/26 windows) | — | ATE RMSE **22.9 / 22.9 / 22.8 m** (11.0% of path), ratio 26.5/25.8/25.9, window scale span 1122/1144/651×, 10.8–12.7 GB | **window size is not the lever at mission scale.** 4.4× fewer windows moved ATE 0.2 m; the recon collapses to a ~10 m blob against a 60 m descent — answering sweep A: bigger windows do not remove the compounding-alignment error |
+| 2026-08-08-colab-eig1-sweepB-kfi | 75bef42 | same, **kfi ∈ {1,2,4,6,8,10}** at ws=128 (54→6 windows, keyframe_frac 100%→11%) | — | ATE RMSE **22.4–22.9 m** flat across all six; scale span 1144→**8.6×** at kfi=10 with ATE unchanged | keyframe density isn't the lever either — and taming the scale-span pathology 130× (kfi=10) changed ATE by nothing, so window-chaining scale decay is a *symptom*, not the root cause |
+| 2026-08-08-colab-eig1-sweepC-flow | 75bef42 | same, **`--flow_threshold 25.0`** (paper's adaptive keyframing) at ws=128, kf_frac 14.3%, 8 windows | — | ATE RMSE **22.9 m**, median 21.8, ratio 23.9 | upstream's own adaptive keyframe policy lands exactly on the same ~23 m — **no inference-time configuration rescues a full 429 s mission**; LingBot-Map is a per-segment (~25–30 s) tool, period |
