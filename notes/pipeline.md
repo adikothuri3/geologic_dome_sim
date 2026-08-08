@@ -1,6 +1,6 @@
 ---
 title: Pipeline architecture
-updated: 2026-08-07
+updated: 2026-08-08
 status: current
 ---
 
@@ -93,11 +93,19 @@ Links: [dimos](https://github.com/dimensionalOS/dimos) (README + AGENTS.md first
 
 ## Terrain conversion
 
-**Isaac path (primary, Phase 4b — to build):** clean metric cloud → Open3D surface
+**Isaac real-DEM path (built + gated 2026-08-08):** for *long* terrain, skip reconstruction
+entirely — a survey-grade national DEM has no scale ambiguity and no drift ceiling. First
+asset: the **Eiger Trail** (swissALTI3D 0.5 m, 5.4 km, 713 m descent, same terrain family as
+GrandTour EIG-1), straightened into an arc-length × cross-track strip → OBJ → USD
+(`TriangleMeshPropertiesCfg` exact collision) → `Dome-G1FullCollision-EigerTrail-v0` with
+custom on-trail env origins. Commands and design: `sims/isaac/terrain/README.md`; rationale:
+the 2026-08-08 terrain entry in [[decisions]]. Gate: `sims/isaac/scripts/check_trail.py`.
+
+**Isaac recon path (per-segment, Phase 4b — to build):** clean metric cloud → Open3D surface
 reconstruction (Poisson / ball-pivoting) → decimate → **OBJ** → USD via `MeshConverterCfg`
-(`collision_approximation="triangleMesh"`). Fallback when a reconstruction isn't usable:
-procedural mountain terrain from `TerrainGeneratorCfg` sub-terrains. Converters land in
-`sims/isaac/terrain/`.
+(exact triangle-mesh collision). Bounded by the ~25 s/~25 m consistency horizon
+([[open-questions]]). Fallback when a reconstruction isn't usable: procedural mountain
+terrain from `TerrainGeneratorCfg` sub-terrains. Converters land in `sims/isaac/terrain/`.
 
 **MuJoCo path (legacy, built and gated):** grid XY at 5–10 cm cells, robust max-z (or
 `--surface ground` indoors), fill holes → `hfield` (`sims/mujoco/terrain/cloud_to_hfield.py`).
