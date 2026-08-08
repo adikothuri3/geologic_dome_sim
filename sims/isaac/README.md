@@ -45,24 +45,58 @@ $py = "$env:USERPROFILE\venvs\isaac\Scripts\python.exe"
 #     steps with finite observations. First run downloads the G1 USD assets.
 & $py sims\isaac\scripts\check_isaac.py --gate b --num_envs 8
 
-# (c) A 10-iteration training smoke completes, writes runs/isaac/<run_id>/,
+# (c) Every domain-randomization term in the DR task actually reaches PhysX,
+#     measured as per-environment spread. 32 envs, so a spread means something.
+& $py sims\isaac\scripts\check_isaac.py --gate c --num_envs 32
+
+# (d) A 10-iteration training smoke completes, writes runs/isaac/<run_id>/,
 #     and appends its notes/experiments.md row.
 & $py sims\isaac\scripts\train_g1_flat.py --smoke
 ```
 
-## The full-collision task (Phase 4a)
+## The tasks (Phase 4a)
 
 The stock `Isaac-Velocity-Flat-G1-v0` uses **`G1_MINIMAL_CFG`** — collision meshes
 stripped for speed, the same feet-only shortcut Playground took and the same reason
-it's wrong for this project. `sims/isaac/tasks/dome_g1/` registers
-**`Dome-G1FullCollision-Flat-v0`**: upstream's flat velocity task with
-`G1_CFG.replace(prim_path=...)` swapped in — every link's collision geometry live,
-rewards/observations/DR untouched.
+it's wrong for this project. `sims/isaac/tasks/dome_g1/` registers three tasks, all on
+`G1_CFG` (every link's collision geometry live):
+
+| Task | What it is |
+| --- | --- |
+| `Dome-G1FullCollision-Flat-v0` | upstream's flat velocity config as-shipped. The **no-DR A/B control** |
+| `Dome-G1FullCollision-Flat-DR-v0` | **the Phase-4a training task** — velocity tracking under the Phase-2 randomization set |
+| `Dome-G1FullCollision-Flat-DR-Play-v0` | 16 envs, clean sensors, no pushes — what `play_g1_flat.py` evaluates in |
+
+> [!warning] Upstream's G1 config randomizes almost nothing
+> `G1RoughEnvCfg.__post_init__` *disables* most of Isaac's own randomization:
+> `push_robot = None`, `add_base_mass = None`, `base_com = None`, reset velocities
+> zeroed, joint-reset scale pinned to `(1.0, 1.0)`, and the physics-material ranges
+> collapsed to point values (static `0.8→0.8`, dynamic `0.6→0.6`). What survives in the
+> stock G1 flat task is observation noise and nothing else. That is why the DR variant
+> exists as a separate task, and why gate (c) measures the randomization out of PhysX
+> instead of trusting the config: a task that randomizes nothing trains, logs and plots
+> exactly like one that does.
+
+`DomeG1DREventCfg` (in `tasks/dome_g1/flat_env_cfg.py`) is the MuJoCo Phase-2
+`domain_randomize` set rebuilt with Isaac EventManager terms — friction, per-link and
+torso mass, torso CoM, armature, ±0.05 rad initial pose, and pushes every 5–10 s — plus
+the joystick command distribution Playground used (direct `vx ±1.0 / vy ±0.5 / ωz ±1.0`,
+no heading controller). Rewards and observations stay upstream's. Full term-by-term
+mapping, including the two deliberate departures, is in that file's docstring and in
+`notes/locomotion-policy.md`.
 
 Training: `sims/isaac/scripts/train_g1_flat.py` — same run discipline as the legacy
 `train_g1.py` (clean-tree gate, config capture, `runs/isaac/<run_id>/` logs, mandatory
-`notes/experiments.md` row, success or failure). Local default 256 envs headless;
-real runs (4096 envs, 1500+ iterations) belong on a cloud GPU.
+`notes/experiments.md` row, success or failure). `--variant dr` is the default;
+`--variant baseline` runs the control. Local default 256 envs headless; real runs
+(4096 envs, 1500+ iterations) belong on a cloud GPU.
+
+Evaluation: `sims/isaac/scripts/play_g1_flat.py runs/isaac/<run_id>` holds one velocity
+command for a whole rollout and reports per-channel tracking MAE and survival across a
+five-command sweep, writing `play_metrics.json` into the run dir. Those are the same
+quantities `sims/mujoco/scripts/compare_gaits.py` produces, so an Isaac policy on flat
+ground is comparable against the Phase-2 MuJoCo baseline and not only against itself.
+`--video` additionally writes an mp4, at the cost of bringing the renderer up.
 
 ## This box vs. Isaac's minimums
 
@@ -94,8 +128,10 @@ below spec on both. The working plan (decided 2026-08-07):
 
 ## Layout
 
-- `scripts/` — `check_isaac.py` (smoke gates a/b), `train_g1_flat.py` (Phase 4a trainer)
-- `tasks/dome_g1/` — the full-collision G1 task registration + configs
+- `scripts/` — `check_isaac.py` (smoke gates a/b/c), `train_g1_flat.py` (Phase 4a trainer),
+  `play_g1_flat.py` (rollout + velocity-tracking scorer)
+- `tasks/dome_g1/` — the full-collision G1 task registrations + configs, including
+  `DomeG1DREventCfg`, the domain-randomization set
 - `terrain/` — Phase 4b converters (cloud → OBJ → USD; procedural configs) — placeholder
 
 ## Claude skills for this track

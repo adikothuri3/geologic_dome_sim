@@ -1,7 +1,8 @@
-"""Phase 4a: train the full-body-collision G1 on a flat plane in Isaac Lab (RSL-RL PPO).
+"""Phase 4a: train the full-body-collision G1 to follow velocity commands, in Isaac Lab.
 
-    python sims/isaac/scripts/train_g1_flat.py --smoke     # 10 iterations, proves the loop
-    python sims/isaac/scripts/train_g1_flat.py             # local run (small; real runs -> cloud)
+    python sims/isaac/scripts/train_g1_flat.py --smoke        # 10 iterations, proves the loop
+    python sims/isaac/scripts/train_g1_flat.py                # local run (small; real runs -> cloud)
+    python sims/isaac/scripts/train_g1_flat.py --variant baseline   # the no-DR A/B control
 
 Implements the `training-run` skill's non-negotiables:
   * the code that runs must be committed; the short hash is recorded
@@ -10,8 +11,20 @@ Implements the `training-run` skill's non-negotiables:
   * hardware limits respected: this box is below Isaac's minimum spec, so the local
     default is num_envs=256 headless; anything bigger belongs on a cloud GPU.
 
-Task: Dome-G1FullCollision-Flat-v0 (sims/isaac/tasks/dome_g1) -- upstream's flat
-velocity task with G1_CFG (full collision) swapped in for G1_MINIMAL_CFG.
+Tasks (sims/isaac/tasks/dome_g1) -- both are upstream's flat velocity task with G1_CFG
+(full collision) swapped in for G1_MINIMAL_CFG:
+
+  dr        Dome-G1FullCollision-Flat-DR-v0   default. Velocity-command tracking under
+            the Phase-2 domain randomization set (friction, link/torso mass, armature,
+            initial pose, pushes) and a direct 3-channel joystick command. The Isaac
+            counterpart of the MuJoCo policy in notes/locomotion-policy.md.
+  baseline  Dome-G1FullCollision-Flat-v0      upstream's config as-shipped, which
+            randomizes nothing but observations. Kept so the cost of DR is measurable
+            rather than assumed.
+
+Run `check_isaac.py --gate c` before spending cloud money on the DR variant: it asserts
+the randomization actually reaches PhysX.
+
 Logs + checkpoints land under runs/isaac/<run_id>/ (RSL-RL writes model_*.pt there).
 """
 
@@ -30,9 +43,15 @@ from isaaclab.app import AppLauncher  # pure-python; safe before app start
 REPO = pathlib.Path(__file__).resolve().parents[3]
 RUNS = REPO / "runs" / "isaac"
 EXPERIMENTS = REPO / "notes" / "experiments.md"
-TASK = "Dome-G1FullCollision-Flat-v0"
+VARIANTS = {
+    "dr": ("Dome-G1FullCollision-Flat-DR-v0", "g1fc-flat-dr"),
+    "baseline": ("Dome-G1FullCollision-Flat-v0", "g1fc-flat"),
+}
 
 parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--variant", choices=sorted(VARIANTS), default="dr",
+                    help="dr: velocity tracking under domain randomization (default). "
+                         "baseline: upstream's config, no dynamics randomization.")
 parser.add_argument("--num_envs", type=int, default=256,
                     help="local ceiling on 8 GB; real training on cloud uses 4096")
 parser.add_argument("--max_iterations", type=int, default=300)
@@ -45,6 +64,8 @@ args, _ = parser.parse_known_args()
 args.headless = True  # non-negotiable on this box
 if args.smoke:
     args.num_envs, args.max_iterations = 64, 10
+
+TASK, VARIANT_SLUG = VARIANTS[args.variant]
 
 
 def git_commit(allow_dirty: bool) -> str:
@@ -71,7 +92,7 @@ def append_experiment_row(row: dict) -> None:
 
 
 commit = git_commit(args.allow_dirty)
-slug = args.run_name or ("g1fc-flat-smoke" if args.smoke else "g1fc-flat")
+slug = args.run_name or (f"{VARIANT_SLUG}-smoke" if args.smoke else VARIANT_SLUG)
 run_id = f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}-isaac-{slug}"
 run_dir = RUNS / run_id
 run_dir.mkdir(parents=True, exist_ok=True)
@@ -87,21 +108,31 @@ from rsl_rl.runners import OnPolicyRunner  # noqa: E402
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper  # noqa: E402
 
 sys.path.insert(0, str(REPO / "sims" / "isaac" / "tasks"))
-import dome_g1  # noqa: F401, E402  (registers the task)
-from dome_g1.flat_env_cfg import DomeG1FlatPPORunnerCfg, G1FullCollisionFlatEnvCfg  # noqa: E402
+import dome_g1  # noqa: F401, E402  (registers the tasks)
 
-env_cfg = G1FullCollisionFlatEnvCfg()
+# The gym registry is the single source of truth for which cfg pairs with which task —
+# looking the entry points up here means adding a variant is one dict entry above and
+# one gym.register(), with no third place to keep in sync.
+spec = gym.spec(TASK)
+env_cfg = spec.kwargs["env_cfg_entry_point"]()
 env_cfg.scene.num_envs = args.num_envs
 env_cfg.seed = args.seed
 
-agent_cfg = DomeG1FlatPPORunnerCfg()
+agent_cfg = spec.kwargs["rsl_rl_cfg_entry_point"]()
 agent_cfg.max_iterations = args.max_iterations
 agent_cfg.seed = args.seed
 
 config = {
-    "task": TASK, "commit": commit, "seed": args.seed,
+    "task": TASK, "variant": args.variant, "commit": commit, "seed": args.seed,
     "num_envs": args.num_envs, "max_iterations": args.max_iterations,
     "robot": "G1_CFG (full collision)", "smoke": args.smoke,
+    "domain_randomization": sorted(env_cfg.events.__dict__) if args.variant == "dr" else "none (upstream defaults)",
+    "command_ranges": {
+        "lin_vel_x": list(env_cfg.commands.base_velocity.ranges.lin_vel_x),
+        "lin_vel_y": list(env_cfg.commands.base_velocity.ranges.lin_vel_y),
+        "ang_vel_z": list(env_cfg.commands.base_velocity.ranges.ang_vel_z),
+        "heading_command": env_cfg.commands.base_velocity.heading_command,
+    },
     "started_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
 }
 (run_dir / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
@@ -109,9 +140,13 @@ config = {
 def write_row(status: str, metrics_txt: str) -> None:
     took = ("smoke test only, not a usable policy" if args.smoke else
             f"local Isaac run at {args.num_envs} envs; real training belongs on cloud")
+    dr = ("**DR on** (friction, link+torso mass, CoM, armature, ±0.05 rad pose, pushes 5–10 s), "
+          "direct 3-channel command vx±1.0/vy±0.5/wz±1.0"
+          if args.variant == "dr" else "**no dynamics DR** (upstream G1 defaults), vx 0…1 + heading control")
     append_experiment_row({
         "run_id": run_id, "commit": commit,
-        "config": f"{TASK}, **full-collision G1_CFG**, RSL-RL PPO, iters={args.max_iterations}, seed={args.seed}",
+        "config": f"{TASK}, **full-collision G1_CFG**, {dr}, RSL-RL PPO, "
+                  f"iters={args.max_iterations}, seed={args.seed}",
         "n_envs": args.num_envs,
         "metrics": metrics_txt,
         "takeaway": took if status == "ok" else metrics_txt,

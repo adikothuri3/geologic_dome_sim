@@ -1,6 +1,6 @@
 ---
 title: Machine setup — RTX 4060 Ti (Windows-native Isaac + WSL2 legacy)
-updated: 2026-08-07
+updated: 2026-08-08
 status: current
 ---
 
@@ -10,13 +10,32 @@ The dev box for the whole home-phase pipeline (see [[pipeline]]). One machine, 8
 
 ## Isaac Sim / Isaac Lab (primary sim — pivoted 2026-08-07)
 
-**Status: installed and smoke-tested 2026-08-07.** All three gates green on this box — see the [[experiments]] row `2026-08-07-isaac-g1fc-flat-smoke` and `runs/isaac/gates.log`.
+**Status: installed and smoke-tested 2026-08-07.** All gates green on this box — see the [[experiments]] row `2026-08-07-isaac-g1fc-flat-smoke` and `runs/isaac/gates.log`. Gate **c** (added 2026-08-08) checks that the domain randomization in `Dome-G1FullCollision-Flat-DR-v0` reaches PhysX; see [[locomotion-policy]] for why that needs asserting.
 
 - **Installed:** isaacsim **5.1.0.0**, isaaclab **0.54.2**, isaaclab-tasks 0.11.12, isaaclab-assets 0.2.4, rsl-rl-lib 3.1.2, torch **2.7.0+cu128** (CUDA confirmed), **Python 3.11.9**. **Native Windows 11 — no WSL.** Not Isaac Lab 3.0 beta (Ubuntu-only).
 - **Venv:** `%USERPROFILE%\venvs\isaac` · **Isaac Lab clone:** `C:\Users\Aditya\src\IsaacLab` (tag v2.3.2)
 - Installer: `sims/isaac/setup_isaac.ps1` (idempotent). It installs the Isaac Lab source packages with **direct pip** — `isaaclab.bat --install` only detects conda or its bundled kit-python, not a plain venv — and pins **`tensordict==0.8.3`** (the latest wheel is built against a newer torch ABI and access-violates on import with torch 2.7.0).
 - **Measured on this box** (below Isaac's 16 GB VRAM / 32 GB RAM minimum): headless SimulationApp up in **~8 s**; full-collision G1 env (8 envs) builds in 26 s; 10 RSL-RL iterations at 64 envs run at **~690 steps/s**. So local headless smoke work is genuinely fine; **real training still goes to a rented cloud GPU** (≥24 GB) — never open the GUI viewport here.
 - Training logs: `runs/isaac/<YYYY-MM-DD-slug>/`, one [[experiments]] row per run (`sims/isaac/scripts/train_g1_flat.py` writes both).
+
+> [!warning] numpy is pinned to 1.26.0 — do not let anything upgrade it
+> `numba 0.59.1`, which `isaacsim-core` depends on, requires `numpy <1.27,>=1.22`.
+> On 2026-08-08 the venv was found holding **numpy 2.4.6 files under a numpy-1.26.0
+> dist-info** — a 2.x wheel unpacked over a 1.x install without a clean uninstall, so
+> pip believed the pin was satisfied. Plain `import numpy` worked and reported 2.4.6;
+> `import numpy.ma.mrecords` did not, which meant `trimesh` failed, which meant
+> `isaaclab_assets` and `isaaclab_tasks` failed to start **as Kit extensions** — several
+> hundred lines of `AttributeError: module 'numpy' has no attribute '_core'` before
+> `AppLauncher` even returned. Repair, and the check worth running after any pip install
+> into this venv:
+>
+> ```powershell
+> $py = "$env:USERPROFILE\venvs\isaac\Scripts\python.exe"
+> & $py -m pip uninstall -y numpy; & $py -m pip install "numpy==1.26.0"
+> & $py -c "import numpy, numpy.ma.mrecords, trimesh; print(numpy.__version__)"
+> ```
+>
+> The last line is the real gate: `import numpy` alone passes on a broken tree.
 
 > [!warning] Three Windows/box quirks, all handled in the installer
 > - **Norton MITMs TLS.** Python/OpenSSL can't verify anything until you point it at
