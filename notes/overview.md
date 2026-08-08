@@ -1,6 +1,6 @@
 ---
 title: Robot Everest 2026 — Overview
-updated: 2026-08-07
+updated: 2026-08-08
 status: current
 ---
 
@@ -30,10 +30,27 @@ status: current
 > **full-collision G1** (`Dome-G1FullCollision-Flat-v0`, our own task — stock Isaac uses
 > the stripped `G1_MINIMAL_CFG`) builds and steps, and a 10-iteration RSL-RL training
 > smoke ran at ~690 steps/s on the 8 GB card — see [[setup]] and [[experiments]].
-> Next: the real Phase 4a flat-plane policy (cloud GPU), then 4b terrain import —
-> LingBot-Map recon if it proves usable, stock/procedural mountain terrain otherwise.
-> Phase 3 (LingBot-Map) continues in parallel and is used **only if it works**; it is no
-> longer on the critical path.
+>
+> **The Phase-4a task now exists** (Aug 8): `Dome-G1FullCollision-Flat-DR-v0` — velocity-command
+> tracking under the Phase-2 domain randomization set, the Isaac counterpart of the MuJoCo
+> joystick policy. This needed building rather than configuring: **upstream's G1 config
+> disables almost all of Isaac's own randomization**, leaving observation noise and nothing
+> else, so a policy trained on stock `Isaac-Velocity-Flat-G1-v0` would face one fixed robot.
+> `check_isaac.py --gate c` now asserts every DR term reaches PhysX. See [[locomotion-policy]]
+> for the term-by-term mapping and [[decisions]] for the call.
+>
+> **4b has its first terrain, and it is real** (Aug 8): the **Eiger Trail** — 5.4 km and
+> 713 m of descent under the Eiger north face, from the swisstopo swissALTI3D **0.5 m
+> survey DEM** (no reconstruction, so no scale ambiguity and no drift ceiling), straightened
+> into a 24 m corridor and imported as USD with exact-mesh collision.
+> `Dome-G1FullCollision-EigerTrail-v0` is gated on this box: spawn origins on the trail,
+> G1 standing on the mesh, observations finite (`check_trail.py`). Same alpine-rock terrain
+> family as the GrandTour EIG-1 benchmark footage. See [[decisions]] (2026-08-08) and
+> `sims/isaac/terrain/README.md`.
+>
+> Next: the real Phase 4a flat-plane policy (cloud GPU), then training on the trail scene.
+> LingBot-Map recon terrain stays the *per-segment* option when it works; Phase 3 continues
+> in parallel and is no longer on the critical path.
 >
 > Phases 1 and 2 both landed early in MuJoCo: Phase 1 on Aug 2, Phase 2 on Aug 4 with a
 > self-trained joystick policy walking and turning under command on a full-body-collision
@@ -63,7 +80,7 @@ status: current
 | Aug 9 | 1 — MuJoCo fluency | G1 standing on a numpy-generated heightfield, rendered as video | **done** (Aug 2, MuJoCo) |
 | Aug 16 | 2 — First locomotion policy | Self-trained joystick policy walking, every reward term explained | **done** (Aug 4, MuJoCo/MJX) |
 | Aug 23 | 3 — LingBot-Map reconstruction | Phone video → dense point cloud of a local trail, camera trajectory overlaid | **toolchain done** (Aug 5); **demonstrated on outdoor trail footage with ground truth** (Aug 6, GrandTour EIG-1); used going forward **only if it works** — no longer on the critical path |
-| Aug 30 | 4 — Isaac Sim real2sim terrain | **4a:** full-body-collision G1 trained on a flat plane in Isaac Lab (headless local smoke, cloud for the real run). **4b:** terrain imported — LingBot recon mesh via MeshConverter if usable, else stock/procedural mountain terrain. Hackathon demo Aug 29 | **Isaac installed, smoke ladder green** (Aug 7): full-collision G1 task loads, steps, and trains locally. 4a real policy + 4b outstanding. MuJoCo chain done Aug 6, recorded in `sims/mujoco/` |
+| Aug 30 | 4 — Isaac Sim real2sim terrain | **4a:** full-body-collision G1 trained on a flat plane in Isaac Lab (headless local smoke, cloud for the real run). **4b:** terrain imported — LingBot recon mesh via MeshConverter if usable, else stock/procedural mountain terrain. Hackathon demo Aug 29 | **Isaac installed, smoke ladder green** (Aug 7): full-collision G1 task loads, steps, and trains locally. **4b terrain landed** (Aug 8): real-DEM **Eiger Trail** scene (`Dome-G1FullCollision-EigerTrail-v0`) built and gated. 4a real policy + training on the trail outstanding. MuJoCo chain done Aug 6, recorded in `sims/mujoco/` |
 | Sept 13 | 5 — Sim2Real training loop | Fine-tuned policy beats baseline on (recon or mountain) terrain in Isaac Lab, with metrics table | not started |
 | Sept 27 | 6 — DimOS integration | One command: replayed robot session → Isaac-ready terrain asset (USD) | not started |
 | Oct 5–20 | 7 — Live expedition pipeline | Daily recon + terrain analytics from Pemba's Everest footage | not started |

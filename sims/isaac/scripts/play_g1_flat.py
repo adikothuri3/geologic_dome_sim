@@ -155,6 +155,14 @@ robot = env.unwrapped.scene["robot"]
 def roll_out(label: str, command: tuple[float, float, float]) -> dict:
     """Hold `command` for the whole clip; return per-channel MAE and survival."""
     target = torch.tensor(command, device=env.unwrapped.device).repeat(args.num_envs, 1)
+
+    # The reset has to happen inside inference mode, not just the stepping. Once a
+    # rollout has run under `torch.inference_mode()`, the sim's buffers are inference
+    # tensors, and `reset_root_state_uniform` writing to them from normal mode raises
+    # "Inplace update to inference tensor outside InferenceMode". Upstream's play script
+    # never resets mid-loop, so it never meets this; a command sweep resets four times.
+    with torch.inference_mode():
+        env.reset()
     obs = env.get_observations()
     if isinstance(obs, tuple):  # older wrappers return (obs, extras)
         obs = obs[0]
@@ -202,8 +210,7 @@ report(f"{'command':<20} {'vx MAE':>8} {'vy MAE':>8} {'wz MAE':>8} {'survival':>
 report("-" * 58)
 results = []
 for label, command in commands:
-    env.reset()
-    r = roll_out(label, command)
+    r = roll_out(label, command)  # resets internally, under inference mode
     results.append(r)
     report(f"{r['command']:<20} {r['vx_mae']:>8.3f} {r['vy_mae']:>8.3f} "
            f"{r['wz_mae']:>8.3f} {r['survival']:>8.0%}")
