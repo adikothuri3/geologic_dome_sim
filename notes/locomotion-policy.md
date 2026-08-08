@@ -221,6 +221,33 @@ Two corrections to upstream, both needed for this to be the same *task* as the j
 standing envs. This is the one place the two task definitions genuinely differ in kind rather
 than in tuning.
 
+### Status: trained twice, walks in neither — and the second failure is understood
+
+> [!warning] The Isaac policy does **not** walk yet. Do not treat this section as delivered.
+> Two full-size attempts, both in [[experiments]]:
+>
+> 1. **256 envs × 1500** — genuinely undertrained (9.2M samples against upstream's 147M).
+>    Learned to stand: 100 % survival, zero translation. This is the run that exposed the
+>    "256 envs is the ceiling" guess as wrong by 16× (see [[setup]]).
+> 2. **4096 envs × 1792** — upstream's own sample count, and it *still* does not translate.
+>    It turns instead: 0.75 of a commanded 1.0 rad/s, with MAE **equal to the command** on
+>    all three linear channels. `feet_air_time` was flat at ~0.01 from iteration 199 to 1599.
+>
+> The second is not a compute problem, and the flat reward-term curve is how you can tell —
+> mean reward rose the whole time (−30 → +4.11) on the yaw term alone. **Mean reward is not
+> a progress signal for this task**; `feet_air_time` and `track_lin_vel_xy_exp` are.
+>
+> Cause and fix are in [[decisions]] (2026-08-08): upstream's stepping reward is gated on the
+> *linear* command norm, so a commanded turn earns nothing for stepping — which is right for
+> upstream's decaying heading command and wrong for our persistent direct-yaw joystick, where
+> pivoting on the spot collects the whole yaw reward for free. `dome_g1/mdp.py` widens the gate
+> to all three channels. **That fix is committed and unvalidated**; a 150-iteration probe was
+> too short to discriminate and is logged as such rather than as evidence.
+>
+> Next: the cloud run in `sims/isaac/README.md` § The cloud run, which carries the abort
+> criterion — if `feet_air_time` is still flat by iteration ~500, the gate was not the cause
+> and `action_rate_l2` (dominant at −0.41) is the next suspect, at the cost of gait smoothness.
+
 ### Comparing against the MuJoCo baseline
 
 `sims/isaac/scripts/play_g1_flat.py` holds one command for a whole rollout and reports

@@ -134,20 +134,70 @@ What survives from the original plan:
 
 ### The cloud run
 
+A box with **≥24 GB VRAM** (Lambda / Brev / AWS; an A10, L40S or A100 all work). Isaac's own
+minimum is 16 GB, and the headroom matters because Phase 5 adds terrain mesh collision.
+
 ```bash
 git clone <repo> && cd GeologicDome
-pwsh sims/isaac/setup_isaac.ps1                 # or the Linux equivalent install
+bash sims/isaac/setup_isaac_cloud.sh            # ~10 GB download, the slow step
 export OMNI_KIT_ACCEPT_EULA=YES
-
-python sims/isaac/scripts/check_isaac.py --gate c --num_envs 32    # is DR live?
-python sims/isaac/scripts/train_g1_flat.py --num_envs 4096 --max_iterations 1500
-python sims/isaac/scripts/play_g1_flat.py runs/isaac/<run_id> --video
+PY=~/venvs/isaac/bin/python
 ```
 
+**1 — Prove the randomization is live.** Seconds, and it is the difference between paying for
+a randomized policy and paying for one trained on a single fixed robot. Every term is measured
+out of PhysX as spread *across environments*; it does not read the config back.
+
+```bash
+$PY sims/isaac/scripts/check_isaac.py --gate c --num_envs 32
+```
+
+**2 — Train.** 4096 envs × 1500 iterations is upstream's own recipe (147M samples).
+
+```bash
+$PY sims/isaac/scripts/train_g1_flat.py --num_envs 4096 --max_iterations 1500
+```
+
+> [!warning] Watch `feet_air_time`, and kill the run early if it stays flat
+> This is the failure the 2026-08-08 local run hit, and it is invisible in mean reward —
+> which kept *rising* the whole time, on the yaw term, while the robot pivoted on the spot
+> and never took a step. The tell is one reward term:
+>
+> ```bash
+> grep "Episode_Reward/feet_air_time" nohup.out | tail -20
+> ```
+>
+> **Healthy:** climbing past ~0.05 by iteration 300–500 and still rising, with
+> `track_lin_vel_xy_exp` above 0.5.
+> **Dead:** pinned near 0.01 while `track_ang_vel_z_exp` climbs. In the failed run it sat at
+> ~0.01 from iteration 199 to 1599 — flat for 1,400 iterations. If you see that shape by
+> iteration ~500, kill it; more compute provably does not fix it (`notes/decisions.md`,
+> 2026-08-08).
+>
+> `feet_air_time_joystick` in `tasks/dome_g1/mdp.py` is the fix for that failure and it is
+> **not yet validated** — this run is its first real test. If it *does* stay flat, the next
+> thing to try is `action_rate_l2` (it was the dominant term at −0.41), accepting that
+> lowering it trades gait smoothness for locomotion.
+
+**3 — Score it, render it, plot it.**
+
+```bash
+$PY sims/isaac/scripts/play_g1_flat.py runs/isaac/<run_id> --video
+$PY sims/isaac/scripts/plot_play.py    runs/isaac/<run_id>
+```
+
+`play_metrics.json` + the terminal table give per-command tracking MAE, survival, and the two
+smoothness numbers; `--video` writes an mp4 of the sweep; `plot_play.py` writes
+`reports/<run_id>-tracking.png`. A policy that works reads as MAE well under the command
+magnitude on every channel — the failed run scored MAE **equal** to it, which is the signature
+of zero motion.
+
+**Optional A/B.** `--variant baseline` runs upstream's config (no dynamics DR, forward-only
+commands, heading control) on the same robot. Worth one run if the DR variant misbehaves,
+because it separates "our randomization is too aggressive" from "our task definition is wrong".
+
 Nothing in these scripts is local-only: paths are repo-relative, the app is always headless,
-and the `notes/experiments.md` row is written before teardown either way. Run gate (c) **first**
-— it is seconds, and it is the difference between paying for a randomized policy and paying for
-one trained on a single fixed robot.
+and the `notes/experiments.md` row is written before teardown either way.
 
 If a run is interrupted, `--resume` continues it from the highest checkpoint in a run directory,
 restoring weights, optimizer state and iteration count. `--max_iterations` is an **absolute

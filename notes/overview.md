@@ -31,13 +31,22 @@ status: current
 > the stripped `G1_MINIMAL_CFG`) builds and steps, and a 10-iteration RSL-RL training
 > smoke ran at ~690 steps/s on the 8 GB card — see [[setup]] and [[experiments]].
 >
-> **The Phase-4a task now exists** (Aug 8): `Dome-G1FullCollision-Flat-DR-v0` — velocity-command
-> tracking under the Phase-2 domain randomization set, the Isaac counterpart of the MuJoCo
-> joystick policy. This needed building rather than configuring: **upstream's G1 config
-> disables almost all of Isaac's own randomization**, leaving observation noise and nothing
-> else, so a policy trained on stock `Isaac-Velocity-Flat-G1-v0` would face one fixed robot.
-> `check_isaac.py --gate c` now asserts every DR term reaches PhysX. See [[locomotion-policy]]
-> for the term-by-term mapping and [[decisions]] for the call.
+> **The Phase-4a task exists; the policy does not yet walk** (Aug 8).
+> `Dome-G1FullCollision-Flat-DR-v0` is velocity-command tracking under the Phase-2 domain
+> randomization set — the Isaac counterpart of the MuJoCo joystick policy. It needed building
+> rather than configuring: **upstream's G1 config disables almost all of Isaac's own
+> randomization**, leaving observation noise and nothing else, so a policy trained on stock
+> `Isaac-Velocity-Flat-G1-v0` would face one fixed robot. `check_isaac.py --gate c` now asserts
+> every DR term reaches PhysX.
+>
+> Two full-size runs later it **turns but does not translate** — and at 4096 envs, upstream's
+> own sample count, so this is not a compute shortfall. Upstream's stepping reward is gated on
+> the *linear* command norm, which makes a commanded turn free to satisfy by pivoting on the
+> spot; the fix is in `dome_g1/mdp.py` and is **committed but unvalidated**. Two side-findings
+> worth more than the runs: **4096 envs fits in 5.05 GB** on this box (the "256 envs" ceiling
+> was wrong by 16×, see [[setup]]), and **mean reward is not a progress signal here** — it rose
+> the whole way on the yaw term while the robot never stepped. See [[locomotion-policy]] for
+> status and [[decisions]] for the call.
 >
 > **4b has its first terrain, and it is real** (Aug 8): the **Eiger Trail** — 5.4 km and
 > 713 m of descent under the Eiger north face, from the swisstopo swissALTI3D **0.5 m
