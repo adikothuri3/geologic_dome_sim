@@ -95,6 +95,7 @@ def gate_b() -> None:
     zeros = torch.zeros(env.unwrapped.num_envs, action_dim, device=device)
 
     finite = True
+    t_step = time.time()
     for i in range(args.steps):
         obs, rew, terminated, truncated, info = env.step(zeros)
         pol = obs["policy"] if isinstance(obs, dict) else obs
@@ -102,6 +103,21 @@ def gate_b() -> None:
             finite = False
             report(f"  [FAIL] non-finite observation at step {i}")
             break
+    step_s = (time.time() - t_step) / max(args.steps, 1)
+
+    # Report VRAM and throughput, because "what num_envs fits on this box" was carried
+    # as a guess (256) for a week, and the sample count it implies is the single biggest
+    # constraint on whether a policy trains at all. torch's counter sees only torch's own
+    # allocations; PhysX allocates outside it, so the driver-level number is the honest
+    # one and both are printed.
+    torch_gb = torch.cuda.max_memory_allocated() / 2**30
+    total_gb = torch.cuda.get_device_properties(0).total_memory / 2**30
+    free_b, total_b = torch.cuda.mem_get_info()
+    used_gb = (total_b - free_b) / 2**30
+    report(f"  VRAM at {args.num_envs:>5} envs: {used_gb:.2f} GB used of {total_gb:.2f} GB "
+           f"(torch's own share {torch_gb:.2f} GB) | {step_s * 1000:.1f} ms/env-step, "
+           f"{args.num_envs / step_s:,.0f} env-steps/s")
+
     env.close()
     if not finite:
         sys.exit(1)
