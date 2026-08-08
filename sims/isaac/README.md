@@ -110,6 +110,44 @@ below spec on both. The working plan (decided 2026-08-07):
   ≥24 GB VRAM). This is the documented normal path even for better-equipped boxes.
 - If smoke step (a) fails on 16 GB RAM, that is data for going cloud-first, not a blocker.
 
+That split is now **measured on this task, not assumed**. The 2026-08-08 local run at 256
+envs reached 100 % survival — falls 72 % → 0.4 %, episode length 15.7 → 1000 — with velocity
+tracking still at exactly zero: MAE equal to the command magnitude on every nonzero channel,
+0.02 on stand-still. That is a policy that has learned to stand and not yet to walk, which is
+the ordering a `−200` termination penalty buys. **256 envs × 1500 iterations is 9.2M samples
+against upstream's 147M at 4096** — 16× short. See the row in `notes/experiments.md`.
+
+### The cloud run
+
+```bash
+git clone <repo> && cd GeologicDome
+pwsh sims/isaac/setup_isaac.ps1                 # or the Linux equivalent install
+export OMNI_KIT_ACCEPT_EULA=YES
+
+python sims/isaac/scripts/check_isaac.py --gate c --num_envs 32    # is DR live?
+python sims/isaac/scripts/train_g1_flat.py --num_envs 4096 --max_iterations 1500
+python sims/isaac/scripts/play_g1_flat.py runs/isaac/<run_id> --video
+```
+
+Nothing in these scripts is local-only: paths are repo-relative, the app is always headless,
+and the `notes/experiments.md` row is written before teardown either way. Run gate (c) **first**
+— it is seconds, and it is the difference between paying for a randomized policy and paying for
+one trained on a single fixed robot.
+
+If a run is interrupted, `--resume` continues it from the highest checkpoint in a run directory,
+restoring weights, optimizer state and iteration count. `--max_iterations` is an **absolute
+target**, not a delta, so the same number means the same thing whether or not it took two goes:
+
+```bash
+python sims/isaac/scripts/train_g1_flat.py --resume runs/isaac/<run_id> --max_iterations 1500
+```
+
+> [!warning] After `AppLauncher`, `sys.exit("message")` is not an exit
+> Kit rebinds `sys.exit` to pybind11's `post_quit()`, which takes an int — a string argument
+> raises `TypeError`, and in `train_g1_flat.py` that got caught and logged as a FAILED training
+> run. Any script here that bails with a message after the app starts must
+> `raise SystemExit(msg)`. Before the app starts, plain `sys.exit` is fine.
+
 ## Key APIs for the phases ahead
 
 - **G1 asset:** `isaaclab_assets/robots/unitree.py` — `G1_CFG` (**full collision**, our
