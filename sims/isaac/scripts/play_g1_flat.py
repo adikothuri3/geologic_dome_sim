@@ -19,6 +19,17 @@ Reported per command, over the whole rollout after a settling window:
   survival            fraction of envs still upright at the end. A policy with a low
                       MAE and a low survival rate is tracking well right up until it
                       falls, which the MAE alone will not show.
+  act rate            mean |a_t - a_{t-1}| over joints and steps, in action units. This
+                      is "jittery" as a number. The MuJoCo Phase-2 policy was visibly
+                      jittery because Playground ships `action_rate` and `energy` scaled
+                      to 0.0; Isaac's flat G1 keeps action_rate_l2 at -0.005, so the
+                      claim that this gait is smoother is one a metric should settle
+                      rather than the eye.
+  joint vel           RMS joint velocity, rad/s. Buzzing at a joint that is not going
+                      anywhere shows up here even when the action rate looks tame.
+
+A per-step trace of commanded vs achieved velocity is written to `play_timeseries.json`
+for plotting (see sims/isaac/scripts/plot_play.py).
 
 The command is pinned every step. Upstream resamples mid-episode (and the PLAY cfg
 already stretches the resample interval), but the command manager also zeroes standing
@@ -169,8 +180,12 @@ def roll_out(label: str, command: tuple[float, float, float]) -> dict:
 
     err_lin = torch.zeros(2, device=env.unwrapped.device)
     err_yaw = torch.zeros((), device=env.unwrapped.device)
+    act_rate = torch.zeros((), device=env.unwrapped.device)
+    joint_vel_sq = torch.zeros((), device=env.unwrapped.device)
     alive = torch.ones(args.num_envs, dtype=torch.bool, device=env.unwrapped.device)
     scored = 0
+    prev_actions = None
+    trace = []
 
     for step in range(n_steps):
         # Pin before acting so the observation the policy sees carries the held command.
@@ -189,15 +204,29 @@ def roll_out(label: str, command: tuple[float, float, float]) -> dict:
             if m.any():
                 err_lin += (target[m, :2] - lin[m]).abs().mean(dim=0)
                 err_yaw += (target[m, 2] - yaw[m]).abs().mean()
+                if prev_actions is not None:
+                    act_rate += (actions[m] - prev_actions[m]).abs().mean()
+                joint_vel_sq += robot.data.joint_vel[m].pow(2).mean()
                 scored += 1
+                trace.append({
+                    "t": round(step * dt, 3),
+                    "vx": round(float(lin[m, 0].mean()), 4),
+                    "vy": round(float(lin[m, 1].mean()), 4),
+                    "wz": round(float(yaw[m].mean()), 4),
+                })
+        prev_actions = actions.clone()
 
     scored = max(scored, 1)
     return {
         "command": label,
+        "target": list(command),
         "vx_mae": float(err_lin[0] / scored),
         "vy_mae": float(err_lin[1] / scored),
         "wz_mae": float(err_yaw / scored),
         "survival": float(alive.float().mean()),
+        "action_rate": float(act_rate / scored),
+        "joint_vel_rms": float((joint_vel_sq / scored).sqrt()),
+        "trace": trace,
     }
 
 
@@ -206,26 +235,38 @@ commands = SWEEP if (args.sweep or args.command is None) else [
 ]
 
 report("")
-report(f"{'command':<20} {'vx MAE':>8} {'vy MAE':>8} {'wz MAE':>8} {'survival':>9}")
-report("-" * 58)
+report(f"{'command':<20} {'vx MAE':>8} {'vy MAE':>8} {'wz MAE':>8} {'survival':>9} "
+       f"{'act rate':>9} {'joint vel':>10}")
+report("-" * 79)
 results = []
 for label, command in commands:
     r = roll_out(label, command)  # resets internally, under inference mode
     results.append(r)
     report(f"{r['command']:<20} {r['vx_mae']:>8.3f} {r['vy_mae']:>8.3f} "
-           f"{r['wz_mae']:>8.3f} {r['survival']:>8.0%}")
+           f"{r['wz_mae']:>8.3f} {r['survival']:>8.0%} {r['action_rate']:>9.4f} "
+           f"{r['joint_vel_rms']:>10.3f}")
 
-out = run_dir / "play_metrics.json"
-out.write_text(json.dumps({
+meta = {
     "checkpoint": ckpt.name,
+    "run_id": run_dir.name,
     "eval_task": args.task,
     "num_envs": args.num_envs,
     "seconds": args.seconds,
     "settle_s": args.settle,
-    "results": results,
-}, indent=2), encoding="utf-8")
+    "trained_iterations": cfg_blob.get("max_iterations"),
+    "trained_num_envs": cfg_blob.get("num_envs"),
+}
+# Two files on purpose: the metrics summary stays small enough to read in a terminal
+# and paste into notes/experiments.md, while the per-step traces (thousands of rows)
+# go next door where only the plotter looks at them.
+(run_dir / "play_metrics.json").write_text(json.dumps(
+    {**meta, "results": [{k: v for k, v in r.items() if k != "trace"} for r in results]},
+    indent=2), encoding="utf-8")
+(run_dir / "play_timeseries.json").write_text(json.dumps(
+    {**meta, "dt": dt, "results": results}, indent=2), encoding="utf-8")
 report("")
-report(f"wrote {out.relative_to(REPO)}")
+report(f"wrote {(run_dir / 'play_metrics.json').relative_to(REPO)}"
+       f" and play_timeseries.json")
 if args.video:
     report(f"video under {(run_dir / 'videos').relative_to(REPO)}")
 
