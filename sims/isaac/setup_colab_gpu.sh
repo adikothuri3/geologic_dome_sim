@@ -57,18 +57,50 @@ case "$GPU" in
 esac
 
 step "python$PY_VERSION (Isaac Sim 5.1 does not support 3.12)"
-if command -v "python$PY_VERSION" >/dev/null; then
-    echo "  already present: $(python$PY_VERSION --version)"
+# The interpreter existing is NOT the same as it being usable. Some Colab images ship
+# python3.11 without python3.11-venv, and then `python3.11 -m venv` fails several minutes
+# later inside setup_isaac_cloud.sh with "ensurepip is not available" -- a failure that
+# points at the wrong script. Test the capability actually needed, not the binary.
+have_venv() {
+    command -v "python$PY_VERSION" >/dev/null \
+        && "python$PY_VERSION" -c "import ensurepip, venv" >/dev/null 2>&1
+}
+
+if have_venv; then
+    echo "  already usable: $(python$PY_VERSION --version) (venv + ensurepip present)"
 else
+    if command -v "python$PY_VERSION" >/dev/null; then
+        echo "  $(python$PY_VERSION --version) is present but cannot create venvs — installing the venv module"
+    fi
     export DEBIAN_FRONTEND=noninteractive
-    sudo apt-get update -qq
-    sudo apt-get install -y -qq software-properties-common >/dev/null
-    sudo add-apt-repository -y ppa:deadsnakes/ppa >/dev/null 2>&1
-    sudo apt-get update -qq
+    sudo apt-get update -qq || true
+    sudo apt-get install -y -qq software-properties-common >/dev/null 2>&1 || true
+    # Only needed if the distro does not carry 3.11 itself; harmless when it does.
+    sudo add-apt-repository -y ppa:deadsnakes/ppa >/dev/null 2>&1 || true
+    sudo apt-get update -qq || true
     sudo apt-get install -y -qq "python$PY_VERSION" "python$PY_VERSION-venv" \
-        "python$PY_VERSION-dev" >/dev/null
+        "python$PY_VERSION-dev" >/dev/null 2>&1 || true
+    if ! have_venv; then
+        echo "  FAILED: python$PY_VERSION cannot create a virtualenv even after installing"
+        echo "  python$PY_VERSION-venv. Diagnose with:"
+        echo "      python$PY_VERSION -c 'import ensurepip, venv'"
+        echo "      apt-cache policy python$PY_VERSION-venv"
+        exit 1
+    fi
     echo "  installed: $(python$PY_VERSION --version)"
 fi
+
+# Prove it end to end rather than trusting the import check, because this is the exact
+# operation the next script performs first and a failure here is 30 seconds, not 30 minutes.
+step "proving python$PY_VERSION can actually build a venv"
+rm -rf /tmp/_venv_probe
+"python$PY_VERSION" -m venv /tmp/_venv_probe >/dev/null 2>&1 && [ -x /tmp/_venv_probe/bin/pip ] || {
+    echo "  FAILED: 'python$PY_VERSION -m venv' did not produce a working venv."
+    "python$PY_VERSION" -m venv /tmp/_venv_probe || true
+    exit 1
+}
+rm -rf /tmp/_venv_probe
+echo "  OK"
 
 step 'graphics libraries Kit loads at startup'
 sudo apt-get install -y -qq vulkan-tools libvulkan1 libglu1-mesa libegl1 libgl1 libglx0 \
