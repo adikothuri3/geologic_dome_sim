@@ -100,6 +100,11 @@ GrandTour EIG-1), straightened into an arc-length × cross-track strip → OBJ �
 (`TriangleMeshPropertiesCfg` exact collision) → `Dome-G1FullCollision-EigerTrail-v0` with
 custom on-trail env origins. Commands and design: `sims/isaac/terrain/README.md`; rationale:
 the 2026-08-08 terrain entry in [[decisions]]. Gate: `sims/isaac/scripts/check_trail.py`.
+Second asset (built + gated 2026-08-08): the **Everest summit patch**
+(NASA HMA 8 m DEM tile-677, 2 km axis-aligned around the summit pyramid, 1750 m relief,
+slope-filtered spawn origins) → `Dome-G1FullCollision-Everest-v0`
+(`sims/isaac/tasks/dome_g1/everest_env_cfg.py`); gate: `sims/isaac/scripts/check_everest.py`;
+rationale: the Everest-DEM entry in [[decisions]].
 
 **Isaac recon path (per-segment, Phase 4b — to build):** clean metric cloud → Open3D surface
 reconstruction (Poisson / ball-pivoting) → decimate → **OBJ** → USD via `MeshConverterCfg`

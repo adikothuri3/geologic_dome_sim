@@ -32,6 +32,10 @@ def main() -> int:
     ap.add_argument("--name", default="eiger_trail.usd")
     args = ap.parse_args()
 
+    # Kit's CWD is not the repo — relative paths break USD layer re-reads inside
+    # MeshConverter ("Accessed invalid null prim"), so resolve before launch.
+    args.obj = args.obj.resolve()
+    args.out_dir = args.out_dir.resolve()
     if not args.obj.exists():
         log(f"FAIL: OBJ not found: {args.obj} — run build_trail_terrain.py first")
         return 1

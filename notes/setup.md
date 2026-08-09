@@ -94,6 +94,13 @@ if the gate fails: a rented L40S/A10, where `setup_isaac_cloud.sh` runs unchange
 >   `runs/isaac/gates.log`; and Kit teardown (`env.close()`) can die with a native access
 >   violation, so `train_g1_flat.py` writes its experiments row *before* closing anything.
 
+**NASA Earthdata credentials (2026-08-08):** the Everest DEM fetch
+(`sims/isaac/terrain/fetch_everest_dem.py`) authenticates via `%USERPROFILE%\_netrc` —
+one line, `machine urs.earthdata.nasa.gov login <user> password <pass>` (account
+`adikothuri`; file exists on this box, outside the repo, never committed). curl.exe +
+cookie jar handles the URS OAuth redirect; `EARTHDATA_TOKEN` env var is the alternate
+path. Same Norton reason as everything else: downloads go through curl, not Python TLS.
+
 ## Hardware & OS (verified 2026-08-02)
 
 - **GPU:** NVIDIA GeForce RTX 4060 Ti, **8 GB VRAM** (8188 MiB), driver 610.62
