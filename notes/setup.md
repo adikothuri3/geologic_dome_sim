@@ -60,9 +60,17 @@ which runs *before* `setup_isaac_cloud.sh`:
 
 Requirements the notebook's preflight cell hard-gates on: driver **≥ 580.65.06** (Isaac Sim
 5.1's stated Linux minimum; Colab's driver cannot be upgraded from inside the runtime),
-**≥ 40 GB** free on `/content`, and **not an A100/H100** — NVIDIA lists GPUs without RT cores
-as unsupported, and the renderer is exactly the part that needs them. **Choose L4.** Fallback
-if the gate fails: a rented L40S/A10, where `setup_isaac_cloud.sh` runs unchanged.
+**≥ 40 GB** free on `/content`, and RT cores.
+
+On the RT-core requirement, since it is the one most likely to be argued with: NVIDIA's Isaac
+Sim 5.1 requirements page says verbatim *"GPUs without RT Cores (A100, H100) are not
+supported"*, and that is a statement about the **renderer**. Headless training is PhysX + CUDA
+and is reported working on A100; `--video` is what breaks — IsaacLab issue #2584 is our exact
+flags on an A100-PCIE-40GB, and it **froze** with `Vulkan 1.1 is not supported`. So an A100 is
+usable for training and not for the eval render; the notebook gates that behind
+`ALLOW_NO_RT_CORES` and times a hung render out rather than losing the session. **L4 is the
+one-runtime answer.** Fallback if the driver gate fails: a rented L40S/A10, where
+`setup_isaac_cloud.sh` runs unchanged.
 
 > [!warning] numpy is pinned to 1.26.0 — do not let anything upgrade it
 > `numba 0.59.1`, which `isaacsim-core` depends on, requires `numpy <1.27,>=1.22`.

@@ -177,11 +177,20 @@ Runs the whole Phase-4a experiment (all three variants, scored, with video) on a
 It shells out to these same scripts unmodified, and clones the repo at a pinned ref rather
 than carrying its own copy.
 
-> [!warning] Select **L4**, not A100
-> NVIDIA lists GPUs without RT Cores (**A100, H100**) as unsupported for Isaac Sim 5.1.
-> Headless physics may still run there, but `--video` brings the offscreen RTX renderer up,
-> which is exactly the part that needs them. Colab has also been observed substituting L4 for
-> a requested A100, so the notebook's first cell checks what you actually got.
+> [!warning] The A100 question, precisely
+> NVIDIA's Isaac Sim 5.1 requirements page states verbatim: *"GPUs without RT Cores (A100,
+> H100) are not supported."* That sentence is about the **RTX renderer**, and it does not
+> mean training fails:
+>
+> | | A100 / H100 | L4, L40S, A10, RTX |
+> | --- | --- | --- |
+> | headless training (PhysX + CUDA, no renderer) | **reported working**, and faster | works |
+> | `--video` / `--enable_cameras` (offscreen RTX) | **froze** on an A100-PCIE-40GB in [IsaacLab #2584](https://github.com/isaac-sim/IsaacLab/issues/2584) — same flags as ours, with `Vulkan 1.1 is not supported` | works |
+>
+> So: **L4 if you want one runtime end to end.** If you want the A100's throughput, train on
+> it and render on an L4 afterwards — `runs/` on Drive makes that a runtime switch, not a
+> retrain. The notebook gates this behind `ALLOW_NO_RT_CORES` and times a hung render out at
+> 30 minutes. Note also that Colab has been observed substituting L4 for a requested A100.
 
 Two things Colab needs that a rented box does not, both in `setup_colab_gpu.sh`:
 **Python 3.11** (Colab ships 3.12, for which no `isaacsim` wheel exists — pip then reports the
