@@ -83,6 +83,37 @@ def gate_a() -> None:
             report(f"  {pkg:>16} {version(pkg)}")
         except Exception:
             report(f"  {pkg:>16} NOT INSTALLED")
+
+    # The asset server, checked HERE so that a gate-b failure is never a mystery.
+    # Every robot USD in this project is streamed from NVIDIA's cloud Nucleus; the root is
+    # a carb setting (`/persistent/isaac/asset_root/cloud`), not a constant. If it fails to
+    # resolve, `ISAACLAB_NUCLEUS_DIR` becomes the literal string "None/Isaac/IsaacLab" and
+    # gate b dies seconds later on a path that looks nothing like a network problem. On a
+    # fresh cloud runtime — no Omniverse config, first ever launch — that is a live risk.
+    try:
+        from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR, NUCLEUS_ASSET_ROOT_DIR, check_file_path
+
+        report(f"  asset root       {NUCLEUS_ASSET_ROOT_DIR}")
+        if not NUCLEUS_ASSET_ROOT_DIR or str(NUCLEUS_ASSET_ROOT_DIR) == "None":
+            report("  [FAIL] the cloud asset root did not resolve. Every robot USD is streamed "
+                   "from it, so gate b cannot build the G1. Usually network egress to "
+                   "omniverse-content-production.s3.*.amazonaws.com is blocked.")
+            raise SystemExit(1)
+
+        g1 = f"{ISAACLAB_NUCLEUS_DIR}/Robots/Unitree/G1/g1.usd"
+        t = time.time()
+        status = check_file_path(g1)
+        report(f"  G1 USD           {'reachable' if status else 'NOT REACHABLE'} "
+               f"({time.time() - t:.1f}s)  {g1}")
+        if not status:
+            report("  [FAIL] the full-collision G1 asset cannot be fetched. gate b would fail "
+                   "on this, and so would training.")
+            raise SystemExit(1)
+    except SystemExit:
+        raise
+    except Exception as exc:  # noqa: BLE001 — diagnosis must not itself be the failure
+        report(f"  asset check      SKIPPED ({type(exc).__name__}: {exc})")
+
     report("[gate a] SimulationApp opened headless and will close clean.")
 
 
