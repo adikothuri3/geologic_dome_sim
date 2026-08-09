@@ -51,9 +51,23 @@ parser.add_argument("--num_envs", type=int, default=8,
                     help="gates b/c; 8 is deliberately tiny for the 8 GB card. Gate c "
                          "needs enough samples for a spread to be meaningful — use 32.")
 parser.add_argument("--steps", type=int, default=50, help="gate b zero-action steps")
+parser.add_argument("--keep-renderer", dest="keep_renderer", action="store_true",
+                    help="leave Kit's RTX renderer enabled. Off by default so these gates "
+                         "run under the same conditions training does")
 AppLauncher.add_app_launcher_args(parser)
 args, _ = parser.parse_known_args()
 args.headless = True  # never open a viewport on this box
+
+# Match train_g1_flat.py exactly: the renderer is off unless asked for. Two reasons, and
+# the second is the one that matters. First, a gate that measures VRAM and throughput under
+# different conditions than the training run is measuring the wrong thing. Second, these
+# gates are the go/no-go before a multi-hour run, and `isaaclab.python.headless.kit` still
+# sets `renderer.enabled = "rtx"` -- so on a GPU without RT cores (A100/H100, which NVIDIA
+# lists as unsupported) gate (a) could fail while training would have been fine, and the
+# honest-looking conclusion would be the wrong one.
+if not args.keep_renderer:
+    _no_rtx = "--/app/renderer/enabled=false"
+    args.kit_args = f"{args.kit_args} {_no_rtx}".strip() if getattr(args, "kit_args", "") else _no_rtx
 
 t0 = time.time()
 app_launcher = AppLauncher(args)

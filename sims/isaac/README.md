@@ -96,9 +96,10 @@ mapping, including the two deliberate departures, is in that file's docstring an
 
 Training: `sims/isaac/scripts/train_g1_flat.py` — same run discipline as the legacy
 `train_g1.py` (clean-tree gate, config capture, `runs/isaac/<run_id>/` logs, mandatory
-`notes/experiments.md` row, success or failure). `--variant dr` is the default;
-`--variant baseline` runs the control. Local default 256 envs headless; real runs
-(4096 envs, 1500+ iterations) belong on a cloud GPU.
+`notes/experiments.md` row, success or failure), plus the guards below. `--variant dr` is
+the default; `--variant heading` is the positive control and `--variant baseline` the no-DR
+one. Defaults are **4096 envs x 3000 iterations** — upstream's own env count, which fits in
+5.05 GB here (see the table below).
 
 Evaluation: `sims/isaac/scripts/play_g1_flat.py runs/isaac/<run_id>` holds one velocity
 command for a whole rollout and reports per-channel tracking MAE and survival across a
@@ -177,6 +178,24 @@ Runs the whole Phase-4a experiment (all three variants, scored, with video) on a
 It shells out to these same scripts unmodified, and clones the repo at a pinned ref rather
 than carrying its own copy.
 
+> [!important] Training does not use the renderer, and now says so
+> `check_isaac.py` and `train_g1_flat.py` both launch Kit with
+> **`--/app/renderer/enabled=false`** (opt out with `--keep-renderer`). Not a micro-
+> optimisation: `isaaclab.python.headless.kit` still sets `renderer.enabled = "rtx"`, so
+> "headless" alone leaves the RTX subsystem loaded for frames nobody ever looks at.
+> Measured on the dev box, renderer off vs on:
+>
+> | | renderer on | renderer off |
+> | --- | --- | --- |
+> | gate b @ 4096 envs | 28,975 env-steps/s | **33,596 env-steps/s** |
+> | gate a startup | ~8 s | **6.5 s** |
+> | 10-iteration smoke, final mean reward | −7.21169098127972 | −7.21169098127972 (identical) |
+>
+> The reward matching to the last digit is the point: disabling the renderer changes the
+> *speed* and nothing about the *result*. It is also what makes a datacentre GPU work — see
+> below. `play_g1_flat.py --video` is unaffected; it is a separate script and genuinely does
+> render.
+
 > [!warning] The A100 question, precisely
 > NVIDIA's Isaac Sim 5.1 requirements page states verbatim: *"GPUs without RT Cores (A100,
 > H100) are not supported."* That sentence is about the **RTX renderer**, and it does not
@@ -187,10 +206,12 @@ than carrying its own copy.
 > | headless training (PhysX + CUDA, no renderer) | **reported working**, and faster | works |
 > | `--video` / `--enable_cameras` (offscreen RTX) | **froze** on an A100-PCIE-40GB in [IsaacLab #2584](https://github.com/isaac-sim/IsaacLab/issues/2584) — same flags as ours, with `Vulkan 1.1 is not supported` | works |
 >
-> So: **L4 if you want one runtime end to end.** If you want the A100's throughput, train on
-> it and render on an L4 afterwards — `runs/` on Drive makes that a runtime switch, not a
-> retrain. The notebook gates this behind `ALLOW_NO_RT_CORES` and times a hung render out at
-> 30 minutes. Note also that Colab has been observed substituting L4 for a requested A100.
+> **Train on the A100.** With `--/app/renderer/enabled=false` the subsystem NVIDIA calls
+> unsupported is never loaded, so the gates and the trainer have nothing left to trip over;
+> the statement above constrains `--video` and nothing else. Render on an L4 afterwards —
+> `runs/` on Drive makes that a runtime switch, not a retrain. The notebook times a hung
+> render out at 30 minutes and still writes the tracking numbers, which need no renderer.
+> Note also that Colab has been observed substituting L4 for a requested A100.
 
 Two things Colab needs that a rented box does not, both in `setup_colab_gpu.sh`:
 **Python 3.11** (Colab ships 3.12, for which no `isaacsim` wheel exists — pip then reports the

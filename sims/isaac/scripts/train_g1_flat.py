@@ -128,9 +128,26 @@ parser.add_argument("--smoke", action="store_true", help="64 envs, 10 iterations
 parser.add_argument("--seed", type=int, default=0)
 parser.add_argument("--run_name", default=None)
 parser.add_argument("--allow-dirty", action="store_true")
+parser.add_argument("--keep-renderer", dest="keep_renderer", action="store_true",
+                    help="leave Kit's RTX renderer enabled. Off by default: training never "
+                         "renders a frame, and disabling it is what makes this run on a GPU "
+                         "without RT cores (A100/H100)")
 AppLauncher.add_app_launcher_args(parser)
 args, _ = parser.parse_known_args()
 args.headless = True  # the RTX renderer is the thing that does not fit; never a viewport
+
+# -- turn the RTX renderer off outright, unless asked not to --------------------------
+# Training is PhysX and CUDA; not one frame is rendered between here and the final
+# checkpoint. Leaving the renderer enabled costs startup time and VRAM for nothing, and on
+# a datacentre GPU it is the difference between running and not: NVIDIA's Isaac Sim 5.1
+# requirements say "GPUs without RT Cores (A100, H100) are not supported", and that is a
+# statement about this subsystem. `isaaclab.python.headless.kit` still sets
+# `renderer.enabled = "rtx"`, so headless alone does NOT disable it -- this does.
+# `play_g1_flat.py --video` is the one thing here that genuinely needs a renderer, and it
+# is a separate script.
+if not args.keep_renderer:
+    _no_rtx = "--/app/renderer/enabled=false"
+    args.kit_args = f"{args.kit_args} {_no_rtx}".strip() if getattr(args, "kit_args", "") else _no_rtx
 if args.smoke:
     args.num_envs, args.max_iterations, args.save_interval = 64, 10, 5
 

@@ -64,13 +64,20 @@ Requirements the notebook's preflight cell hard-gates on: driver **≥ 580.65.06
 
 On the RT-core requirement, since it is the one most likely to be argued with: NVIDIA's Isaac
 Sim 5.1 requirements page says verbatim *"GPUs without RT Cores (A100, H100) are not
-supported"*, and that is a statement about the **renderer**. Headless training is PhysX + CUDA
-and is reported working on A100; `--video` is what breaks — IsaacLab issue #2584 is our exact
-flags on an A100-PCIE-40GB, and it **froze** with `Vulkan 1.1 is not supported`. So an A100 is
-usable for training and not for the eval render; the notebook gates that behind
-`ALLOW_NO_RT_CORES` and times a hung render out rather than losing the session. **L4 is the
-one-runtime answer.** Fallback if the driver gate fails: a rented L40S/A10, where
-`setup_isaac_cloud.sh` runs unchanged.
+supported"*, and that is a statement about the **renderer**. `check_isaac.py` and
+`train_g1_flat.py` therefore launch Kit with `--/app/renderer/enabled=false` (opt out with
+`--keep-renderer`), which removes that subsystem rather than hoping it tolerates the card —
+"headless" alone does not, since `isaaclab.python.headless.kit` still sets
+`renderer.enabled = "rtx"`. Measured 2026-08-09 on this box, renderer off vs on: **33,596 vs
+28,975 env-steps/s** at 4096 envs, gate a **6.5 s vs ~8 s**, and a 10-iteration smoke whose
+final mean reward matched to the last digit (−7.21169098127972 both ways) — faster, same
+result.
+
+So **an A100 trains fine**; what it cannot do is `play_g1_flat.py --video`, which needs a real
+renderer (IsaacLab issue #2584 is our exact flags on an A100-PCIE-40GB, frozen with
+`Vulkan 1.1 is not supported`). The Colab pattern is therefore: train on whatever is fastest,
+switch the runtime to an L4 for the eval render, since `runs/` lives on Drive. Fallback if the
+driver gate fails: a rented L40S/A10, where `setup_isaac_cloud.sh` runs unchanged.
 
 > [!warning] numpy is pinned to 1.26.0 — do not let anything upgrade it
 > `numba 0.59.1`, which `isaacsim-core` depends on, requires `numpy <1.27,>=1.22`.
