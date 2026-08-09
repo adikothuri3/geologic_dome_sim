@@ -14,8 +14,13 @@
 #                      wheel unpacked over a 1.x install breaks trimesh -> isaaclab_assets
 #   * tensordict==0.8.3 the current wheel is built against a newer torch ABI and
 #                      access-violates on import with torch 2.7.0
-#   * flatdict==4.0.1 --no-build-isolation — it imports pkg_resources at build time,
-#                      which modern setuptools no longer ships in pip's isolated env
+#   * setuptools<81   flatdict 4.0.1 has no wheel on PyPI, so pip builds it from sdist,
+#                      and its setup.py does `import pkg_resources`. setuptools 81 dropped
+#                      pkg_resources. --no-build-isolation alone is NOT enough -- it only
+#                      moves the build into the venv, so the venv's setuptools must still
+#                      carry pkg_resources. Measured 2026-08-09: setuptools 84.0.0 ->
+#                      "ModuleNotFoundError: No module named 'pkg_resources'" ->
+#                      metadata-generation-failed; setuptools 80.10.2 -> installs clean.
 #
 # Do NOT bump to Isaac Lab 3.0 beta: its Newton/kit-less branch is a different API surface.
 
@@ -66,7 +71,9 @@ if [ ! -x "$VENV_DIR/bin/python" ]; then
     }
 fi
 PY="$VENV_DIR/bin/python"
-"$PY" -m pip install --quiet --upgrade pip setuptools wheel
+"$PY" -m pip install --quiet --upgrade pip wheel
+# NOT --upgrade setuptools: see the flatdict note in the header.
+"$PY" -m pip install --quiet "setuptools<81"
 
 step 'disk space for the ~25 GB install'
 avail_gb=$(df -BG --output=avail "$(dirname "$VENV_DIR")" 2>/dev/null | tail -1 | tr -dc '0-9')
@@ -93,6 +100,14 @@ git -C "$LAB_DIR" checkout "$LAB_REF" --quiet
 echo "  checked out $LAB_REF"
 
 step 'Isaac Lab packages -> venv (direct pip; isaaclab.sh only understands conda/kit-python)'
+# Re-pin here, not just at venv creation: installing isaacsim above can drag a newer
+# setuptools back in, and this is the one step that cannot tolerate it.
+"$PY" -m pip install --quiet "setuptools<81"
+"$PY" -c "import pkg_resources" 2>/dev/null || {
+    echo "  FAILED: setuptools in this venv has no pkg_resources, which flatdict's sdist"
+    echo "  needs at build time. Try:  $PY -m pip install 'setuptools<81'"
+    exit 1
+}
 "$PY" -m pip install --quiet --no-build-isolation flatdict==4.0.1
 for pkg in source/isaaclab source/isaaclab_assets "source/isaaclab_rl[rsl-rl]" source/isaaclab_tasks; do
     echo "  pip install -e $pkg"

@@ -84,10 +84,16 @@ Step 'Isaac Lab packages -> venv (direct pip; isaaclab.bat only understands cond
 # Two Windows-venv realities, discovered the hard way:
 #  * isaaclab.bat's editable-install loop can't find a plain venv's python -- it looks for
 #    conda or its bundled _isaac_sim\python.bat. So install the source packages directly.
-#  * flatdict 4.0.1 (an isaaclab dep) imports pkg_resources at build time, which pip's
-#    isolated build env (modern setuptools) no longer ships -- build it against the venv's
-#    own setuptools instead.
-& $VPy -m pip install setuptools wheel | Out-Null
+#  * flatdict 4.0.1 (an isaaclab dep) has no wheel on PyPI, so pip builds it from sdist,
+#    and its setup.py does `import pkg_resources`. setuptools 81 dropped pkg_resources.
+#    --no-build-isolation alone is NOT enough: it only moves the build into the venv, so
+#    the venv's setuptools must still carry pkg_resources. Measured 2026-08-09 in a clean
+#    3.11 venv -- setuptools 84.0.0 gives "ModuleNotFoundError: No module named
+#    'pkg_resources'" and metadata-generation-failed; setuptools 80.10.2 installs clean.
+#    This box never hit it only because Norton was silently failing the setuptools
+#    upgrade, leaving python's bundled 65.5.0 in place; the Colab run surfaced it.
+& $VPy -m pip install wheel | Out-Null
+& $VPy -m pip install "setuptools<81" | Out-Null
 & $VPy -m pip install --no-build-isolation flatdict==4.0.1
 foreach ($pkg in @('source\isaaclab', 'source\isaaclab_assets', 'source\isaaclab_rl[rsl-rl]', 'source\isaaclab_tasks')) {
     Write-Host "  pip install -e $pkg"
